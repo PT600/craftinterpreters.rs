@@ -1,0 +1,8 @@
+[package]
+name = "jlox"
+version = "0.1.0"
+authors = ["PengTao <tao.peng@eyangmedia.com>"]
+edition = "2018"
+
+[dependencies]
+anyhow = "1.0.34"
