@@ -1,5 +1,5 @@
 use crate::ast::{Expr::*, TokenType::*, *};
-use crate::parser::*;
+use super::*;
 
 macro_rules! parser {
         ($($x:expr),+ $(,)?) => (

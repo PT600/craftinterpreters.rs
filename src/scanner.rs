@@ -45,6 +45,7 @@ impl<'a> Scanner<'a> {
                 '+' => self.add_token(PLUS),
                 ';' => self.add_token(SEMICOLON),
                 '*' => self.add_token(STAR),
+                '?' => self.add_token(QUESTION),
                 '!' => self.add_token_if_match('=', BangEqual, BANG),
                 '=' => self.add_token_if_match('=', EqualEqual, EQUAL),
                 '<' => self.add_token_if_match('=', LessEqual, LESS),
@@ -174,3 +175,7 @@ impl<'a> Scanner<'a> {
         is_match
     }
 }
+
+#[cfg(test)]
+#[path="./scanner_test.rs"]
+mod scanner_test;

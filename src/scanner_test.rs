@@ -1,9 +1,9 @@
 use crate::scanner::Scanner;
 use crate::ast::*;
-use crate::ast_printer::print;
+
 
 #[test]
-fn scan() {
+fn test_scanner() {
     let source = "var a = 1\n var b = a + 1";
     let tokens = Scanner::scan(source);
     println!("tokens: {:?}", tokens);
@@ -17,4 +17,5 @@ fn scan() {
     assert_eq!(tokens[7], Token{ttype: TokenType::IDENTIFIER("a".into()), line: 1});
     assert_eq!(tokens[8], Token{ttype: TokenType::PLUS, line: 1});
     assert_eq!(tokens[9], Token{ttype: TokenType::NUMBER(1f64), line: 1});
+    assert_eq!(tokens[10], Token{ttype: TokenType::EOF, line: 1});
 }

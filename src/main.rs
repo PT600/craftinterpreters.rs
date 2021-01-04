@@ -2,10 +2,6 @@ mod scanner;
 mod parser;
 mod ast_printer;
 mod ast;
-#[cfg(test)]
-mod scanner_test;
-#[cfg(test)]
-mod parser_test;
 
 use std::{env, fs};
 use std::io::{self, Read};

@@ -12,6 +12,7 @@ pub enum TokenType {
     SEMICOLON,
     SLASH,
     STAR,
+    QUESTION,
 
     // One or two character tokens.
     BANG,
@@ -62,6 +63,7 @@ pub enum Expr {
     Unary(Box<UnaryExpr>),
     Binary(Box<BinaryExpr>),
     Grouping(Box<Expr>),
+    Ternary(Box<TernaryExpr>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -74,5 +76,11 @@ pub struct BinaryExpr {
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnaryExpr {
     pub operator: Token,
+    pub right: Expr,
+}
+#[derive(Debug, Clone, PartialEq)]
+pub struct TernaryExpr {
+    pub cond: Expr,
+    pub left: Expr,
     pub right: Expr,
 }
