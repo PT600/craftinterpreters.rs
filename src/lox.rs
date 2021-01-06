@@ -1,9 +1,11 @@
 use anyhow::{bail, Error, Result};
-use fs::write;
-use crate::{interpreter::{Interpreter, Value}, parser::{self, Parser}};
+use crate::interpreter::Interpreter; 
+use crate::parser::{self, Parser};
 use crate::scanner::Scanner;
-use std::io::{self, Write};
+use crate::ast::*;
+use std::io::{self};
 use std::fs;
+
 
 pub struct Lox {
     interpreter: Interpreter,
@@ -38,7 +40,7 @@ impl Lox {
     fn run(&self, source: String) -> Result<Value> {
         let mut scanner = Scanner::new(&source);
         scanner.scan_tokens()?;
-        let expr = Parser::parse(scanner.tokens);
+        let expr = Parser::parse_expr(scanner.tokens);
         self.interpreter.evaluate(&expr)
     }
 

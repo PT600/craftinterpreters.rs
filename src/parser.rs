@@ -12,8 +12,37 @@ impl Parser {
         Parser { it }
     }
 
-    pub fn parse(tokens: Vec<Token>) -> Expr {
+    pub fn parse(&mut self, tokens: Vec<Token>) -> Vec<Stmt>{
+        let mut stmts = vec![];
+        while let Some(token) = self.it.peek() {
+            stmts.push(self.statement());
+        }
+        stmts
+    }
+
+    pub fn parse_expr(tokens: Vec<Token>) -> Expr{
         Self::new(tokens).expression()
+    }
+
+    // statement  ->  expr stmt |  print stmt
+    fn statement(&mut self) -> Stmt {
+        if self.next_if_match(PRINT) {
+            self.print_stmt()
+        }else {
+            self.expr_stmt()
+        }
+    }
+
+    fn print_stmt(&mut self) -> Stmt {
+        let expr = self.expression();
+        self.consume(SEMICOLON).expect("Expect ';' after a value");
+        Stmt::PrintStmt(expr)
+    }
+
+    fn expr_stmt(&mut self) -> Stmt {
+        let expr = self.expression();
+        self.consume(SEMICOLON).expect("Expect ';' after a value");
+        Stmt::ExprStmt(expr)
     }
 
     fn expression(&mut self) -> Expr {
@@ -40,7 +69,7 @@ impl Parser {
         while let Some(token) = self.it.peek() {
             match &token.ttype {
                 BangEqual | EqualEqual => {
-                    let operator = self.consume();
+                    let operator = self.next_token();
                     let right = self.comparison();
                     expr = Expr::Binary(Box::new(BinaryExpr {
                         left: expr,
@@ -60,7 +89,7 @@ impl Parser {
         while let Some(token) = self.it.peek() {
             match &token.ttype {
                 GREATER | GreaterEqual | LESS | LessEqual => {
-                    let operator = self.consume();
+                    let operator = self.next_token();
                     let right = self.term();
                     expr = Expr::Binary(Box::new(BinaryExpr {
                         left: expr,
@@ -80,7 +109,7 @@ impl Parser {
         while let Some(token) = self.it.peek() {
             match &token.ttype {
                 MINUS | PLUS => {
-                    let operator = self.consume();
+                    let operator = self.next_token();
                     let right = self.factor();
                     expr = Expr::Binary(Box::new(BinaryExpr {
                         left: expr,
@@ -100,7 +129,7 @@ impl Parser {
         while let Some(token) = self.it.peek() {
             match &token.ttype {
                 STAR | SLASH => {
-                    let operator = self.consume();
+                    let operator = self.next_token();
                     let right = self.factor();
                     expr = Expr::Binary(Box::new(BinaryExpr {
                         left: expr,
@@ -119,7 +148,7 @@ impl Parser {
         if let Some(token) = self.it.peek() {
             match &token.ttype {
                 BANG | MINUS => {
-                    let operator = self.consume();
+                    let operator = self.next_token();
                     let right = self.unary();
                     return Expr::Unary(Box::new(UnaryExpr { operator, right }));
                 }
@@ -171,8 +200,12 @@ impl Parser {
         is_match
     }
 
-    fn consume(&mut self) -> Token {
+    fn next_token(&mut self) -> Token {
         self.it.next().unwrap()
+    }
+
+    fn consume(&mut self, target: TokenType) -> Option<Token> {
+        self.it.next().filter(|token| matches!(&token.ttype, target))
     }
 
     // start of a statement

@@ -4,6 +4,7 @@ mod interpreter;
 mod parser;
 mod scanner;
 mod lox;
+mod enviorment;
 
 use anyhow::{bail, Error, Result};
 use std::io::{self, Read};

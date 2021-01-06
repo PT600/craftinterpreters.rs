@@ -1,5 +1,4 @@
-use anyhow::Result;
-
+use anyhow::{Result, bail};
 #[derive(Debug, PartialEq, Clone)]
 pub enum TokenType {
     // Single-character tokens.
@@ -97,3 +96,41 @@ pub struct TernaryExpr {
 }
 
 pub struct Object {}
+
+#[derive(Debug, PartialEq)]
+pub enum Value {
+    Boolean(bool),
+    Num(f64),
+    Nil,
+    String(String),
+    // Object(Object),
+}
+
+impl Value {
+    pub fn is_truthy(&self) -> bool {
+        match self {
+            Value::Nil => false,
+            Value::Boolean(b) => *b,
+            _ => true,
+        }
+    }
+
+    pub fn as_num(&self) -> Result<f64> {
+        match self {
+            Value::Num(num) => Ok(*num),
+            _ => bail!("Operands must be a number"),
+        }
+    }
+
+    pub fn is_equal(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Value::Nil, _) | (_, Value::Nil) => false,
+            _ => self == other,
+        }
+    }
+}
+
+pub enum Stmt {
+    ExprStmt(Expr),
+    PrintStmt(Expr),
+}
