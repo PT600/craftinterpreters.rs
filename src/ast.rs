@@ -1,3 +1,5 @@
+use anyhow::Result;
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum TokenType {
     // Single-character tokens.
@@ -34,7 +36,7 @@ pub enum TokenType {
     AND,
     CLASS,
     ELSE,
-    FALSE,
+    False,
     FUN,
     FOR,
     IF,
@@ -44,7 +46,7 @@ pub enum TokenType {
     RETURN,
     SUPER,
     THIS,
-    TRUE,
+    True,
     VAR,
     WHILE,
 
@@ -59,11 +61,19 @@ pub struct Token {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
-    Literal(Token),
+    Literal(LiteralKind),
     Unary(Box<UnaryExpr>),
     Binary(Box<BinaryExpr>),
     Grouping(Box<Expr>),
     Ternary(Box<TernaryExpr>),
+}
+#[derive(Debug, Clone, PartialEq)]
+pub enum LiteralKind {
+    Boolean(bool),
+    Nil,
+    Identifier(String),
+    String(String),
+    Num(f64),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -78,9 +88,12 @@ pub struct UnaryExpr {
     pub operator: Token,
     pub right: Expr,
 }
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct TernaryExpr {
     pub cond: Expr,
     pub left: Expr,
     pub right: Expr,
 }
+
+pub struct Object {}

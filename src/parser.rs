@@ -1,5 +1,5 @@
-use crate::ast::{TokenType::*, *};
-use std::{iter::Peekable};
+use crate::ast::{TokenType::*, Expr::*, *};
+use std::iter::Peekable;
 use std::vec::IntoIter;
 
 pub struct Parser {
@@ -17,18 +17,21 @@ impl Parser {
     }
 
     fn expression(&mut self) -> Expr {
-        self.equality()
+        self.ternary()
     }
 
     // ternary        -> equality "?" equality ":" equality
     fn ternary(&mut self) -> Expr {
         let cond = self.equality();
-        self.it.next().filter(|token| token.ttype == QUESTION).expect("expect '?'");
-        let left = self.equality();
-        self.it.next().filter(|token| token.ttype == COMMA).expect("expect ':'");
-        let right = self.equality();
-        let ternary = TernaryExpr {cond, left, right };
-        Expr::Ternary(Box::new(ternary))
+        if self.next_if_match(QUESTION) {
+            let left = self.equality();
+            self.it.next().filter(|token| token.ttype == COMMA).expect("expect ':'");
+            let right = self.equality();
+            let ternary = TernaryExpr { cond, left, right, };
+            Expr::Ternary(Box::new(ternary))
+        } else {
+            cond
+        }
     }
 
     // equality       → comparison ( ( "!=" | "==" ) comparison )* ;
@@ -131,10 +134,12 @@ impl Parser {
     fn primary(&mut self) -> Expr {
         if let Some(token) = self.it.next() {
             return match &token.ttype {
-                FALSE | TRUE | NIL => Expr::Literal(token),
-                NUMBER(num) => Expr::Literal(token),
-                STRING(content) => Expr::Literal(token),
-                IDENTIFIER(ident) => Expr::Literal(token),
+                NIL => Literal(LiteralKind::Nil),
+                True => Literal(LiteralKind::Boolean(true)),
+                False => Literal(LiteralKind::Boolean(false)),
+                NUMBER(num) => Literal(LiteralKind::Num(*num)),
+                STRING(content) => Literal(LiteralKind::String(content.clone())),
+                IDENTIFIER(ident) => Literal(LiteralKind::Identifier(ident.clone())),
                 LeftParen => {
                     let expr = self.expression();
                     self.it

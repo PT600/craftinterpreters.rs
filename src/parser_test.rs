@@ -11,19 +11,23 @@ fn token(ttype: TokenType) -> Token {
     Token { ttype, line: 0 }
 }
 
-fn literal(ttype: TokenType) -> Expr {
-    Literal(token(ttype))
+fn literal(kind: LiteralKind) -> Expr {
+    Literal(kind)
 }
 
 #[test]
 fn primary() {
-    let mut parser = parser!(TRUE);
+    let mut parser = parser!(True);
     let expr = parser.primary();
-    assert_eq!(expr, literal(TRUE));
+    assert_eq!(expr, literal(LiteralKind::Boolean(true)));
 
     let mut parser = parser!(IDENTIFIER("a".into()));
     let expr = parser.primary();
-    assert_eq!(expr, literal(IDENTIFIER("a".into())));
+    assert_eq!(expr, literal(LiteralKind::Identifier("a".into())));
+
+    let mut parser = parser!(TokenType::STRING("a".into()));
+    let expr = parser.primary();
+    assert_eq!(expr, literal(LiteralKind::String("a".into())));
 }
 
 #[test]
@@ -32,7 +36,7 @@ fn unary() {
     let expr = parser.unary();
     let target = UnaryExpr {
         operator: token(BANG),
-        right: literal(IDENTIFIER("a".into())),
+        right: literal(LiteralKind::Identifier("a".into())),
     };
     assert_eq!(expr, Unary(Box::new(target)));
 }
@@ -43,12 +47,12 @@ fn factor(){
     let expr = parser.factor();
     let left = UnaryExpr {
         operator: token(MINUS),
-        right: literal(IDENTIFIER("a".into())),
+        right: literal(LiteralKind::Identifier("a".into())),
     };
     let target = BinaryExpr {
         left: Unary(Box::new(left)),
         operator: token(STAR),
-        right: literal(NUMBER(5f64)),
+        right: literal(LiteralKind::Num(5f64)),
     };
     assert_eq!(expr, Binary(Box::new(target)));
 }
@@ -58,12 +62,12 @@ fn term(){
     let mut parser = parser!(NUMBER(10f64), MINUS, IDENTIFIER("a".into()), STAR, NUMBER(5f64));
     let expr = parser.term();
     let right = BinaryExpr {
-        left: literal(IDENTIFIER("a".into())),
+        left: literal(LiteralKind::String("a".into())),
         operator: token(STAR),
-        right: literal(NUMBER(5f64)),
+        right: literal(LiteralKind::Num(5f64)),
     };
     let target = BinaryExpr {
-        left: literal(NUMBER(10f64)),
+        left: literal(LiteralKind::Num(10f64)),
         operator: token(MINUS),
         right: Binary(Box::new(right)),
     };
@@ -75,9 +79,9 @@ fn comparison(){
     let mut parser = parser!(IDENTIFIER("a".into()), GreaterEqual, NUMBER(5f64));
     let expr = parser.comparison();
     let target = BinaryExpr {
-        left: literal(IDENTIFIER("a".into())),
+        left: literal(LiteralKind::Identifier("a".into())),
         operator: token(GreaterEqual),
-        right: literal(NUMBER(5f64)),
+        right: literal(LiteralKind::Num(5f64)),
     };
     assert_eq!(expr, Binary(Box::new(target)));
 }
@@ -87,9 +91,9 @@ fn equality(){
     let mut parser = parser!(IDENTIFIER("a".into()), BangEqual, NUMBER(5f64));
     let expr = parser.equality();
     let target = BinaryExpr {
-        left: literal(IDENTIFIER("a".into())),
+        left: literal(LiteralKind::Identifier("a".into())),
         operator: token(BangEqual),
-        right: literal(NUMBER(5f64)),
+        right: literal(LiteralKind::Num(5f64)),
     };
     assert_eq!(expr, Binary(Box::new(target)));
 }
