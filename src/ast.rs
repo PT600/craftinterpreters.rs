@@ -30,12 +30,11 @@ pub enum TokenType {
     STRING(String),
     NUMBER(f64),
 
-    KEYWORD(String),
-    // Keywords.
     AND,
     CLASS,
     ELSE,
-    False,
+    FALSE,
+    TRUE,
     FUN,
     FOR,
     IF,
@@ -45,11 +44,9 @@ pub enum TokenType {
     RETURN,
     SUPER,
     THIS,
-    True,
     VAR,
     WHILE,
 
-    EOF,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -65,6 +62,8 @@ pub enum Expr {
     Binary(Box<BinaryExpr>),
     Grouping(Box<Expr>),
     Ternary(Box<TernaryExpr>),
+    Variable(String),
+    Assign(String, Box<Expr>),
 }
 #[derive(Debug, Clone, PartialEq)]
 pub enum LiteralKind {
@@ -97,7 +96,7 @@ pub struct TernaryExpr {
 
 pub struct Object {}
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Value {
     Boolean(bool),
     Num(f64),
@@ -130,7 +129,9 @@ impl Value {
     }
 }
 
+#[derive(Debug, PartialEq)]
 pub enum Stmt {
     ExprStmt(Expr),
     PrintStmt(Expr),
+    VarDecl(String, Option<Expr>),
 }

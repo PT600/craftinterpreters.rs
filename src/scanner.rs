@@ -1,23 +1,35 @@
 use crate::ast::{TokenType::*, *};
 use anyhow::{bail, Result};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::iter::{FromIterator, Peekable};
 use std::str::Chars;
 
 pub struct Scanner<'a> {
     it: Peekable<Chars<'a>>,
     line: usize,
-    keywords: HashSet<&'static str>,
+    keywords: HashMap<&'static str, TokenType>,
     pub tokens: Vec<Token>,
 }
 
 impl<'a> Scanner<'a> {
     pub fn new(source: &'a str) -> Self {
-        let keywords = vec![
-            "and", "class", "else", "false", "for", "fun", "if", "nil", "or", "print", "return",
-            "super", "this", "true", "var", "while",
-        ];
-        let keywords = HashSet::from_iter(keywords.into_iter());
+        let mut keywords = HashMap::new();
+        keywords.insert("and", AND);
+        keywords.insert("class", CLASS);
+        keywords.insert("else", ELSE);
+        keywords.insert("false", FALSE);
+        keywords.insert("for", FOR);
+        keywords.insert("fun", FUN);
+        keywords.insert("if", IF);
+        keywords.insert("nil", NIL);
+        keywords.insert("or", OR);
+        keywords.insert("print", PRINT);
+        keywords.insert("return", RETURN);
+        keywords.insert("super", SUPER);
+        keywords.insert("this", THIS);
+        keywords.insert("true", TRUE);
+        keywords.insert("var", VAR);
+        keywords.insert("while", WHILE);
         Scanner {
             it: source.chars().peekable(),
             line: 0,
@@ -126,11 +138,7 @@ impl<'a> Scanner<'a> {
                 _ => break,
             }
         }
-        let token = if self.keywords.contains(content.as_str()) {
-            KEYWORD(content)
-        } else {
-            IDENTIFIER(content)
-        };
+        let token = self.keywords.get::<str>(&content).map(|t|t.clone()).unwrap_or(IDENTIFIER(content));
         self.add_token(token);
         Ok(())
     }
@@ -177,5 +185,5 @@ impl<'a> Scanner<'a> {
 }
 
 #[cfg(test)]
-#[path="./scanner_test.rs"]
+#[path = "./scanner_test.rs"]
 mod scanner_test;

@@ -1,4 +1,6 @@
-use crate::ast::{TokenType::*, Expr::*, *};
+use crate::ast::{Expr::*, TokenType::*, *};
+use crate::ast::Expr;
+use anyhow::{bail, Context, Result};
 use std::iter::Peekable;
 use std::vec::IntoIter;
 
@@ -12,41 +14,87 @@ impl Parser {
         Parser { it }
     }
 
-    pub fn parse(&mut self, tokens: Vec<Token>) -> Vec<Stmt>{
+    pub fn parse(&mut self) -> Vec<Result<Stmt>> {
         let mut stmts = vec![];
         while let Some(token) = self.it.peek() {
-            stmts.push(self.statement());
+            stmts.push(self.declaration());
         }
         stmts
     }
 
-    pub fn parse_expr(tokens: Vec<Token>) -> Expr{
+    pub fn parse_expr(tokens: Vec<Token>) -> Expr {
         Self::new(tokens).expression()
     }
 
+    fn declaration(&mut self) -> Result<Stmt> {
+        let stmt = if self.next_if_match(VAR) {
+            self.var_decl()
+        }else {
+            self.statement()
+        };
+        if stmt.is_err() {
+            self.synchronize();
+        }
+        stmt
+    }
+
+    // var_decl   -> "var" identifier ("=" expression)? ";";
+    fn var_decl(&mut self) -> Result<Stmt> {
+        if let Some(token) = self.it.next() {
+            match token.ttype {
+                IDENTIFIER(var) => {
+                    let stmt = if self.next_if_match(EQUAL) {
+                        Stmt::VarDecl(var, Some(self.expression()))
+                    } else {
+                        Stmt::VarDecl(var, None)
+                    };
+                    self.consume(SEMICOLON).context("Expect ';' after a value")?;
+                    return Ok(stmt);
+                }
+                _ => {}
+            }
+        }
+        bail!("expect identifier!")
+    }
+
     // statement  ->  expr stmt |  print stmt
-    fn statement(&mut self) -> Stmt {
+    fn statement(&mut self) -> Result<Stmt> {
         if self.next_if_match(PRINT) {
             self.print_stmt()
-        }else {
+        } else {
             self.expr_stmt()
         }
     }
 
-    fn print_stmt(&mut self) -> Stmt {
+    fn print_stmt(&mut self) -> Result<Stmt> {
         let expr = self.expression();
-        self.consume(SEMICOLON).expect("Expect ';' after a value");
-        Stmt::PrintStmt(expr)
+        self.consume(SEMICOLON)
+            .context("Expect ';' after a value")?;
+        Ok(Stmt::PrintStmt(expr))
     }
 
-    fn expr_stmt(&mut self) -> Stmt {
+    fn expr_stmt(&mut self) -> Result<Stmt> {
         let expr = self.expression();
-        self.consume(SEMICOLON).expect("Expect ';' after a value");
-        Stmt::ExprStmt(expr)
+        self.consume(SEMICOLON)
+            .context("Expect ';' after a value")?;
+        Ok(Stmt::ExprStmt(expr))
     }
 
     fn expression(&mut self) -> Expr {
-        self.ternary()
+        self.assignment()
+    }
+
+    fn assignment(&mut self) -> Expr {
+        let mut expr = self.ternary();
+        if self.next_if_match(EQUAL) {
+            let value = self.assignment();
+            if let Expr::Variable(var) = expr {
+                expr = Expr::Assign(var, Box::new(value))
+            } else {
+                panic!("Invalid assigment target!")
+            }
+        }
+        expr
     }
 
     // ternary        -> equality "?" equality ":" equality
@@ -54,9 +102,12 @@ impl Parser {
         let cond = self.equality();
         if self.next_if_match(QUESTION) {
             let left = self.equality();
-            self.it.next().filter(|token| token.ttype == COMMA).expect("expect ':'");
+            self.it
+                .next()
+                .filter(|token| token.ttype == COMMA)
+                .expect("expect ':'");
             let right = self.equality();
-            let ternary = TernaryExpr { cond, left, right, };
+            let ternary = TernaryExpr { cond, left, right };
             Expr::Ternary(Box::new(ternary))
         } else {
             cond
@@ -159,16 +210,16 @@ impl Parser {
     }
 
     //primary        → NUMBER | STRING | "true" | "false" | "nil"
-    //                | "(" expression ")" ;
+    //                | "(" expression ")" | identifier;
     fn primary(&mut self) -> Expr {
         if let Some(token) = self.it.next() {
-            return match &token.ttype {
+            return match token.ttype {
                 NIL => Literal(LiteralKind::Nil),
-                True => Literal(LiteralKind::Boolean(true)),
-                False => Literal(LiteralKind::Boolean(false)),
-                NUMBER(num) => Literal(LiteralKind::Num(*num)),
-                STRING(content) => Literal(LiteralKind::String(content.clone())),
-                IDENTIFIER(ident) => Literal(LiteralKind::Identifier(ident.clone())),
+                TRUE => Literal(LiteralKind::Boolean(true)),
+                FALSE => Literal(LiteralKind::Boolean(false)),
+                NUMBER(num) => Literal(LiteralKind::Num(num)),
+                STRING(content) => Literal(LiteralKind::String(content)),
+                IDENTIFIER(ident) => Variable(ident),
                 LeftParen => {
                     let expr = self.expression();
                     self.it
@@ -205,7 +256,9 @@ impl Parser {
     }
 
     fn consume(&mut self, target: TokenType) -> Option<Token> {
-        self.it.next().filter(|token| matches!(&token.ttype, target))
+        self.it
+            .next()
+            .filter(|token| matches!(&token.ttype, target))
     }
 
     // start of a statement

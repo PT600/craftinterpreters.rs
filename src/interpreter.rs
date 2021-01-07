@@ -1,33 +1,61 @@
-use crate::ast::{Expr::*, TokenType::*, *};
+use std::collections::HashMap;
+
+use crate::{
+    ast::{Expr::*, TokenType::*, *},
+    ast_printer::print,
+    enviorment::Env,
+};
 use anyhow::{bail, Result};
 
-pub struct Interpreter {}
+pub struct Interpreter {
+    env: Env,
+}
 
 impl Interpreter {
-    pub fn interpret(&self, stmts: Vec<Stmt>) -> Result<()> {
+    pub fn new() -> Interpreter {
+        let env = Env {
+            values: HashMap::new(),
+            enclosing: None,
+        };
+        Self { env }
+    }
+    pub fn interpret(&mut self, stmts: Vec<Result<Stmt>>) -> Result<()> {
         for stmt in &stmts {
-            match self.eval(stmt) {
-                Err(err) => println!("err: {:?}", err),
-                _ => {}
+            match stmt {
+                Ok(stmt) => {
+                    let result = self.eval(stmt);
+                    result.unwrap_or_else(|err| println!("err: {:?}", err))
+                }
+                Err(err) => {
+                    println!("err: {:?}", err);
+                }
             }
         }
         Ok(())
     }
 
-    pub fn eval(&self, stmt: &Stmt) -> Result<()> {
+    pub fn eval(&mut self, stmt: &Stmt) -> Result<()> {
         match stmt {
             Stmt::ExprStmt(expr) => {
-                self.evaluate(expr);
+                self.evaluate(expr)?;
             }
             Stmt::PrintStmt(expr) => {
                 let value = self.evaluate(expr)?;
                 println!("{:?}", value);
             }
+            Stmt::VarDecl(var, expr) => {
+                let v = if let Some(expr) = expr {
+                    self.evaluate(expr)?
+                } else {
+                    Value::Nil
+                };
+                self.env.define(var.into(), v)
+            }
         }
         Ok(())
     }
 
-    pub fn evaluate(&self, expr: &Expr) -> Result<Value> {
+    pub fn evaluate(&mut self, expr: &Expr) -> Result<Value> {
         let value = match expr {
             Literal(kind) => match kind {
                 LiteralKind::Num(num) => Value::Num(*num),
@@ -35,6 +63,10 @@ impl Interpreter {
                 LiteralKind::Nil => Value::Nil,
                 LiteralKind::String(content) => Value::String(content.clone()),
                 _ => bail!("todo for literalKind: {:?}!", kind),
+            },
+            Variable(var) => {
+                let v = self.env.get(var)?;
+                v.clone()
             },
             Unary(expr) => match &expr.operator.ttype {
                 TokenType::BANG => {
@@ -111,7 +143,20 @@ impl Interpreter {
                     _ => bail!("Operands must be a condition!"),
                 }
             }
+            Assign(var, expr) => {
+                let value = self.evaluate(&*expr)?;
+                self.env.assign(var, value.clone())?;
+                value
+            }
         };
         Ok(value)
     }
+
+    pub fn env(&self, name: &String) -> Result<&Value> {
+        self.env.get(name)
+    }
 }
+
+#[cfg(test)]
+#[path="./interpreter_test.rs"]
+mod interpreter_test;

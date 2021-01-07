@@ -13,7 +13,7 @@ use std::{env, fs};
 use lox::Lox;
 
 fn main() -> Result<()> {
-    let lox = Lox::new();
+    let mut lox = Lox::new();
     let args: Vec<String> = env::args().collect();
     if args.len() > 2 {
         println!("Usage: jlox [script]");

@@ -13,16 +13,16 @@ pub struct Lox {
 
 impl Lox {
     pub fn new() -> Self {
-        let interpreter = Interpreter {};
+        let interpreter = Interpreter::new();
         Lox { interpreter }
     }
-    pub fn run_file(&self, path: &str) -> Result<()> {
+    pub fn run_file(&mut self, path: &str) -> Result<()> {
         let content = fs::read_to_string(path)?;
         self.run(content)?;
         Ok(())
     }
 
-    pub fn run_prompt(&self) -> Result<()> {
+    pub fn run_prompt(&mut self) -> Result<()> {
         println!("Welcome to Lox console!");
         let stdin = io::stdin(); // We get `Stdin` here.
         loop {
@@ -37,11 +37,12 @@ impl Lox {
         Ok(())
     }
 
-    fn run(&self, source: String) -> Result<Value> {
+    fn run(&mut self, source: String) -> Result<()> {
         let mut scanner = Scanner::new(&source);
         scanner.scan_tokens()?;
-        let expr = Parser::parse_expr(scanner.tokens);
-        self.interpreter.evaluate(&expr)
+        let mut parser = Parser::new(scanner.tokens);
+        let expr = parser.parse();
+        self.interpreter.interpret(expr)
     }
 
     fn error(&self, line: usize, message: &str) -> Result<()> {

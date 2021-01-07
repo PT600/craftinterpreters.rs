@@ -17,7 +17,7 @@ fn literal(kind: LiteralKind) -> Expr {
 
 #[test]
 fn primary() {
-    let mut parser = parser!(True);
+    let mut parser = parser!(TRUE);
     let expr = parser.primary();
     assert_eq!(expr, literal(LiteralKind::Boolean(true)));
 
@@ -96,4 +96,13 @@ fn equality(){
         right: literal(LiteralKind::Num(5f64)),
     };
     assert_eq!(expr, Binary(Box::new(target)));
+}
+
+#[test]
+fn var_decl(){
+    let mut parser = parser!(IDENTIFIER("a".into()), EQUAL, NUMBER(5f64), SEMICOLON);
+    let stmt = parser.var_decl();
+    assert!(stmt.is_ok());
+    let expect = Stmt::VarDecl("a".to_string(), Some(Literal(LiteralKind::Num(5f64))));
+    assert_eq!(stmt.unwrap(),  expect);
 }
