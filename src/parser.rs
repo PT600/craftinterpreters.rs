@@ -167,12 +167,12 @@ impl Parser {
         expr
     }
 
-    // term           → factor ( ( "-" | "+" ) factor )* ;
+    // term           → factor ( ( "-" | "+" | "-=" | "+=" ) factor )* ;
     fn term(&mut self) -> Expr {
         let mut expr = self.factor();
         while let Some(token) = self.it.peek() {
             match &token.ttype {
-                MINUS | PLUS => {
+                MINUS | MinusEqual | PLUS | PlusEqual => {
                     let operator = self.next_token();
                     let right = self.factor();
                     expr = Expr::Binary(Box::new(BinaryExpr {
@@ -187,12 +187,12 @@ impl Parser {
         expr
     }
 
-    // factor         → unary ( ( "/" | "*" ) unary )* ;
+    // factor         → unary ( ( "/" | "/=" | "*" | "*=") unary )* ;
     fn factor(&mut self) -> Expr {
         let mut expr = self.unary();
         while let Some(token) = self.it.peek() {
             match &token.ttype {
-                STAR | SLASH => {
+                STAR | StarEqual | SLASH | SlashEqual => {
                     let operator = self.next_token();
                     let right = self.factor();
                     expr = Expr::Binary(Box::new(BinaryExpr {

@@ -54,10 +54,10 @@ impl<'a> Scanner<'a> {
                 '}' => self.add_token(RightBrace),
                 ',' => self.add_token(COMMA),
                 '.' => self.add_token(DOT),
-                '-' => self.add_token(MINUS),
-                '+' => self.add_token(PLUS),
+                '-' => self.add_token_if_match('=', MinusEqual, MINUS),
+                '+' => self.add_token_if_match('=', PlusEqual, PLUS),
                 ';' => self.add_token(SEMICOLON),
-                '*' => self.add_token(STAR),
+                '*' => self.add_token_if_match('=', StarEqual, STAR),
                 '?' => self.add_token(QUESTION),
                 ':' => self.add_token(COLON),
                 '!' => self.add_token_if_match('=', BangEqual, BANG),
@@ -69,6 +69,8 @@ impl<'a> Scanner<'a> {
                         while self.next_ifnot_match('\n') {}
                     } else if self.next_if_match('*') {
                         self.parse_comment()?;
+                    } else if self.next_if_match('=') {
+                        self.add_token(SlashEqual);
                     } else {
                         self.add_token(SLASH);
                     }

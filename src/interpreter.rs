@@ -53,10 +53,13 @@ impl Interpreter {
                 self.env.define(var.clone(), v)
             }
             Stmt::BlockStmt(block) => {
-                let env = mem::replace(&mut self.env, Env {
-                    values: HashMap::new(),
-                    enclosing: None,
-                });
+                let env = mem::replace(
+                    &mut self.env,
+                    Env {
+                        values: HashMap::new(),
+                        enclosing: None,
+                    },
+                );
                 self.env.enclosing = Some(Box::new(env));
                 for stmt in block {
                     self.eval(stmt)?
@@ -124,21 +127,27 @@ impl Interpreter {
                         let right = right.as_num()?;
                         Value::Num(left - right)
                     }
+                    MinusEqual => self.ops_assign(expr, MINUS)?,
                     PLUS => match (left, right) {
                         (Value::Num(left), Value::Num(right)) => Value::Num(left + right),
                         (Value::String(left), Value::String(right)) => Value::String(left + &right),
                         _ => bail!("Operands must be two numbers or strings!"),
                     },
-                    SPLASH => {
+                    PlusEqual => self.ops_assign(expr, PLUS)?,
+                    SLASH => {
                         let left = left.as_num()?;
                         let right = right.as_num()?;
                         Value::Num(left / right)
+                    }
+                    SlashEqual => {
+                        self.ops_assign(expr, SLASH)?
                     }
                     STAR => {
                         let left = left.as_num()?;
                         let right = right.as_num()?;
                         Value::Num(left * right)
                     }
+                    StarEqual => self.ops_assign(expr, STAR)?,
                     _ => bail!("Unkown binary operator: {:?}", expr.operator),
                 }
             }
@@ -165,6 +174,20 @@ impl Interpreter {
         Ok(value)
     }
 
+    fn ops_assign(&mut self, expr: &Box<BinaryExpr>, op: TokenType) -> Result<Value> {
+        let left = &expr.left;
+        let mut bin_expr = *expr.clone();
+        bin_expr.operator.ttype = op;
+        let expr = Expr::Binary(Box::new(bin_expr));
+        let result = self.evaluate(&expr)?;
+        match &left {
+            Variable(var) => {
+                self.env.assign(var, result.clone())?;
+            }
+            _ => bail!("{:?} is not a Variable", left),
+        }
+        Ok(result)
+    }
     pub fn env(&self, name: &SmolStr) -> Result<&Value> {
         self.env.get(name)
     }

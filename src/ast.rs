@@ -10,10 +10,14 @@ pub enum TokenType {
     COMMA,
     DOT,
     MINUS,
+    MinusEqual,
     PLUS,
+    PlusEqual,
     SEMICOLON,
     SLASH,
+    SlashEqual,
     STAR,
+    StarEqual,
     QUESTION,
     COLON,
 
@@ -71,7 +75,6 @@ pub enum Expr {
 pub enum LiteralKind {
     Boolean(bool),
     Nil,
-    Identifier(SmolStr),
     String(String),
     Num(f64),
 }
