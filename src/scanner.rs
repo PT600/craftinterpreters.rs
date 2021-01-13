@@ -1,5 +1,6 @@
 use crate::ast::{TokenType::*, *};
 use anyhow::{bail, Result};
+use smol_str::SmolStr;
 use std::collections::{HashMap, HashSet};
 use std::iter::{FromIterator, Peekable};
 use std::str::Chars;
@@ -58,6 +59,7 @@ impl<'a> Scanner<'a> {
                 ';' => self.add_token(SEMICOLON),
                 '*' => self.add_token(STAR),
                 '?' => self.add_token(QUESTION),
+                ':' => self.add_token(COLON),
                 '!' => self.add_token_if_match('=', BangEqual, BANG),
                 '=' => self.add_token_if_match('=', EqualEqual, EQUAL),
                 '<' => self.add_token_if_match('=', LessEqual, LESS),
@@ -138,7 +140,7 @@ impl<'a> Scanner<'a> {
                 _ => break,
             }
         }
-        let token = self.keywords.get::<str>(&content).map(|t|t.clone()).unwrap_or(IDENTIFIER(content));
+        let token = self.keywords.get::<str>(&content).map(|t|t.clone()).unwrap_or(IDENTIFIER(content.into()));
         self.add_token(token);
         Ok(())
     }

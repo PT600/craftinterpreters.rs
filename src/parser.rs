@@ -1,5 +1,5 @@
-use crate::ast::{Expr::*, TokenType::*, *};
 use crate::ast::Expr;
+use crate::ast::{Expr::*, TokenType::*, *};
 use anyhow::{bail, Context, Result};
 use std::iter::Peekable;
 use std::vec::IntoIter;
@@ -26,10 +26,11 @@ impl Parser {
         Self::new(tokens).expression()
     }
 
+    // decl     -> var_decl | statement
     fn declaration(&mut self) -> Result<Stmt> {
         let stmt = if self.next_if_match(VAR) {
             self.var_decl()
-        }else {
+        } else {
             self.statement()
         };
         if stmt.is_err() {
@@ -48,7 +49,8 @@ impl Parser {
                     } else {
                         Stmt::VarDecl(var, None)
                     };
-                    self.consume(SEMICOLON).context("Expect ';' after a value")?;
+                    self.consume(SEMICOLON)
+                        .context("Expect ';' after a value")?;
                     return Ok(stmt);
                 }
                 _ => {}
@@ -57,10 +59,12 @@ impl Parser {
         bail!("expect identifier!")
     }
 
-    // statement  ->  expr stmt |  print stmt
+    // statement  ->  expr stmt |  print stmt | block;
     fn statement(&mut self) -> Result<Stmt> {
         if self.next_if_match(PRINT) {
             self.print_stmt()
+        } else if self.next_if_match(LeftBrace) {
+            self.block_stmt()
         } else {
             self.expr_stmt()
         }
@@ -78,6 +82,15 @@ impl Parser {
         self.consume(SEMICOLON)
             .context("Expect ';' after a value")?;
         Ok(Stmt::ExprStmt(expr))
+    }
+
+    // block    -> "{" declaration* "}"
+    fn block_stmt(&mut self) -> Result<Stmt> {
+        let mut stmts = vec![];
+        while !self.next_if_match(RightBrace) {
+            stmts.push(self.declaration()?);
+        }
+        Ok(Stmt::BlockStmt(stmts))
     }
 
     fn expression(&mut self) -> Expr {
@@ -104,7 +117,7 @@ impl Parser {
             let left = self.equality();
             self.it
                 .next()
-                .filter(|token| token.ttype == COMMA)
+                .filter(|token| token.ttype == COLON)
                 .expect("expect ':'");
             let right = self.equality();
             let ternary = TernaryExpr { cond, left, right };

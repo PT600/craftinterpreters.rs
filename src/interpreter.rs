@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, mem};
 
 use crate::{
     ast::{Expr::*, TokenType::*, *},
@@ -6,6 +6,7 @@ use crate::{
     enviorment::Env,
 };
 use anyhow::{bail, Result};
+use smol_str::SmolStr;
 
 pub struct Interpreter {
     env: Env,
@@ -49,7 +50,19 @@ impl Interpreter {
                 } else {
                     Value::Nil
                 };
-                self.env.define(var.into(), v)
+                self.env.define(var.clone(), v)
+            }
+            Stmt::BlockStmt(block) => {
+                let env = mem::replace(&mut self.env, Env {
+                    values: HashMap::new(),
+                    enclosing: None,
+                });
+                self.env.enclosing = Some(Box::new(env));
+                for stmt in block {
+                    self.eval(stmt)?
+                }
+                let env = *self.env.enclosing.take().expect("Should have enclosing!");
+                self.env = env;
             }
         }
         Ok(())
@@ -67,7 +80,7 @@ impl Interpreter {
             Variable(var) => {
                 let v = self.env.get(var)?;
                 v.clone()
-            },
+            }
             Unary(expr) => match &expr.operator.ttype {
                 TokenType::BANG => {
                     let val = self.evaluate(&expr.right)?;
@@ -152,11 +165,11 @@ impl Interpreter {
         Ok(value)
     }
 
-    pub fn env(&self, name: &String) -> Result<&Value> {
+    pub fn env(&self, name: &SmolStr) -> Result<&Value> {
         self.env.get(name)
     }
 }
 
 #[cfg(test)]
-#[path="./interpreter_test.rs"]
+#[path = "./interpreter_test.rs"]
 mod interpreter_test;

@@ -23,7 +23,7 @@ fn primary() {
 
     let mut parser = parser!(IDENTIFIER("a".into()));
     let expr = parser.primary();
-    assert_eq!(expr, literal(LiteralKind::Identifier("a".into())));
+    assert_eq!(expr, Variable("a".into()));
 
     let mut parser = parser!(TokenType::STRING("a".into()));
     let expr = parser.primary();
@@ -103,6 +103,6 @@ fn var_decl(){
     let mut parser = parser!(IDENTIFIER("a".into()), EQUAL, NUMBER(5f64), SEMICOLON);
     let stmt = parser.var_decl();
     assert!(stmt.is_ok());
-    let expect = Stmt::VarDecl("a".to_string(), Some(Literal(LiteralKind::Num(5f64))));
+    let expect = Stmt::VarDecl("a".into(), Some(Literal(LiteralKind::Num(5f64))));
     assert_eq!(stmt.unwrap(),  expect);
 }

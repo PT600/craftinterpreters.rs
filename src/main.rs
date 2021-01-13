@@ -24,3 +24,18 @@ fn main() -> Result<()> {
         lox.run_prompt()
     }
 }
+
+#[test]
+fn test(){
+    let immut_val = String::from("immut");
+    let fn_closure = || {
+        println!("Len: {}", immut_val.len());
+    };
+
+    println!("Value: {}", immut_val); //ok
+    fn_closure();                     //ok
+
+    // cannot borrow mutably because it is already borrowed immutably
+    // immut_val.push_str("-push");   
+    // fn_closure();
+}

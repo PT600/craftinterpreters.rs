@@ -19,7 +19,7 @@ fn varirable(){
     let mut it = Interpreter::new();
     let result = eval(&mut it, "var a = \"abc\";");
     assert!(result.is_ok());
-    let val = it.env(&"a".to_string());
+    let val = it.env(&"a".into());
     assert!(val.is_ok());
     let result = val.unwrap();
     assert_eq!(result, &Value::String("abc".into()));
@@ -29,7 +29,7 @@ fn varirable(){
     assert!(result.is_ok());
 
     // get
-    let result = it.evaluate(&Expr::Variable("a".to_string()));
+    let result = it.evaluate(&Expr::Variable("a".into()));
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), Value::Num(5f64));
 

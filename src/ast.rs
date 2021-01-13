@@ -1,4 +1,5 @@
 use anyhow::{Result, bail};
+use smol_str::SmolStr;
 #[derive(Debug, PartialEq, Clone)]
 pub enum TokenType {
     // Single-character tokens.
@@ -14,6 +15,7 @@ pub enum TokenType {
     SLASH,
     STAR,
     QUESTION,
+    COLON,
 
     // One or two character tokens.
     BANG,
@@ -26,7 +28,7 @@ pub enum TokenType {
     LessEqual,
 
     // Literals.
-    IDENTIFIER(String),
+    IDENTIFIER(SmolStr),
     STRING(String),
     NUMBER(f64),
 
@@ -62,14 +64,14 @@ pub enum Expr {
     Binary(Box<BinaryExpr>),
     Grouping(Box<Expr>),
     Ternary(Box<TernaryExpr>),
-    Variable(String),
-    Assign(String, Box<Expr>),
+    Variable(SmolStr),
+    Assign(SmolStr, Box<Expr>),
 }
 #[derive(Debug, Clone, PartialEq)]
 pub enum LiteralKind {
     Boolean(bool),
     Nil,
-    Identifier(String),
+    Identifier(SmolStr),
     String(String),
     Num(f64),
 }
@@ -133,5 +135,6 @@ impl Value {
 pub enum Stmt {
     ExprStmt(Expr),
     PrintStmt(Expr),
-    VarDecl(String, Option<Expr>),
+    VarDecl(SmolStr, Option<Expr>),
+    BlockStmt(Vec<Stmt>),
 }
