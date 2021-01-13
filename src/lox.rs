@@ -31,8 +31,8 @@ impl Lox {
             if size == 0 || buffer.eq("quit\n") {
                 break;
             }
-            let value = self.run(buffer)?;
-            println!("=>{:?}", value);
+            self.run(buffer)?;
+            // println!("=>{:?}", value);
         }
         Ok(())
     }

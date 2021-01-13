@@ -38,11 +38,12 @@ impl Interpreter {
     pub fn eval(&mut self, stmt: &Stmt) -> Result<()> {
         match stmt {
             Stmt::ExprStmt(expr) => {
-                self.evaluate(expr)?;
+                let value = self.evaluate(expr)?;
+                println!("{}", value)
             }
             Stmt::PrintStmt(expr) => {
                 let value = self.evaluate(expr)?;
-                println!("{:?}", value);
+                println!("{}", value);
             }
             Stmt::VarDecl(var, expr) => {
                 let v = if let Some(expr) = expr {

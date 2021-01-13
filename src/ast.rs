@@ -1,3 +1,5 @@
+use std::fmt::{Display, write};
+
 use anyhow::{Result, bail};
 use smol_str::SmolStr;
 #[derive(Debug, PartialEq, Clone)]
@@ -108,6 +110,16 @@ pub enum Value {
     Nil,
     String(String),
     // Object(Object),
+}
+impl Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Value::Boolean(b) => write!(f, "{}", b),
+            Value::Num(num) => write!(f, "{}",  num),
+            Value::Nil => write!(f, "nil"),
+            Value::String(content) => write!(f, "{}", content),
+        }
+    }
 }
 
 impl Value {

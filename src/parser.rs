@@ -72,15 +72,15 @@ impl Parser {
 
     fn print_stmt(&mut self) -> Result<Stmt> {
         let expr = self.expression();
-        self.consume(SEMICOLON)
-            .context("Expect ';' after a value")?;
+        self.next_if_match(SEMICOLON);
+            // .context("Expect ';' after a value")?;
         Ok(Stmt::PrintStmt(expr))
     }
 
     fn expr_stmt(&mut self) -> Result<Stmt> {
         let expr = self.expression();
-        self.consume(SEMICOLON)
-            .context("Expect ';' after a value")?;
+        self.next_if_match(SEMICOLON);
+            // .context("Expect ';' after a value")?;
         Ok(Stmt::ExprStmt(expr))
     }
 
