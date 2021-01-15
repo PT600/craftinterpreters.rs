@@ -40,8 +40,12 @@ impl Interpreter {
         Ok(())
     }
 
+    fn is_breaking(&self) -> bool{
+        *self.loop_breakings.last().unwrap_or(&false)
+    }
+
     pub fn eval_stmt(&mut self, stmt: &Stmt) -> Result<()> {
-        if *self.loop_breakings.last().unwrap_or(&false){
+        if self.is_breaking() {
             return Ok(());
         }
         match stmt {
@@ -88,6 +92,9 @@ impl Interpreter {
                 self.loop_breakings.push(false);
                 while self.eval_expr(&while_stmt.cond)?.is_truthy() {
                     self.eval_stmt(&while_stmt.body)?;
+                    if self.is_breaking() {
+                        break;
+                    }
                 }
                 self.loop_breakings.pop();
             }
