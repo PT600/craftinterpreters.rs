@@ -68,6 +68,19 @@ impl Interpreter {
                 let env = *self.env.enclosing.take().expect("Should have enclosing!");
                 self.env = env;
             }
+            Stmt::IF(if_stmt) => {
+                let cond = self.evaluate(&if_stmt.cond)?;
+                if cond.is_truthy() {
+                    self.eval(&if_stmt.then)?;
+                } else if let Some(els) = &if_stmt.els {
+                    self.eval(els)?;
+                }
+            }
+            Stmt::While(while_stmt) => {
+                while self.evaluate(&while_stmt.cond)?.is_truthy() {
+                    self.eval(&while_stmt.body)?;
+                }
+            }
         }
         Ok(())
     }
@@ -79,7 +92,6 @@ impl Interpreter {
                 LiteralKind::Boolean(v) => Value::Boolean(*v),
                 LiteralKind::Nil => Value::Nil,
                 LiteralKind::String(content) => Value::String(content.clone()),
-                _ => bail!("todo for literalKind: {:?}!", kind),
             },
             Variable(var) => {
                 let v = self.env.get(var)?;
@@ -170,6 +182,13 @@ impl Interpreter {
                 let value = self.evaluate(&*expr)?;
                 self.env.assign(var, value.clone())?;
                 value
+            }
+            Logic(expr)  => {
+                let left = self.evaluate(&expr.left)?;
+                match(expr.is_and, left.is_truthy()){
+                    (true, false) | (false, true) => left,
+                    _ => self.evaluate(&expr.right)?
+                } 
             }
         };
         Ok(value)

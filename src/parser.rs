@@ -59,12 +59,23 @@ impl Parser {
         bail!("expect identifier!")
     }
 
-    // statement  ->  expr stmt |  print stmt | block;
+    // statement  -> expr_stmt
+    //             | for_stmt
+    //             | if_stmt
+    //             | print_stmt
+    //             | while_stmt
+    //             | block;
     fn statement(&mut self) -> Result<Stmt> {
         if self.next_if_match(PRINT) {
             self.print_stmt()
+        } else if self.next_if_match(FOR) {
+            self.for_stmt()
+        } else if self.next_if_match(IF) {
+            self.if_stmt()
         } else if self.next_if_match(LeftBrace) {
             self.block_stmt()
+        } else if self.next_if_match(WHILE) {
+            self.while_stmt()
         } else {
             self.expr_stmt()
         }
@@ -73,14 +84,80 @@ impl Parser {
     fn print_stmt(&mut self) -> Result<Stmt> {
         let expr = self.expression();
         self.next_if_match(SEMICOLON);
-            // .context("Expect ';' after a value")?;
+        // .context("Expect ';' after a value")?;
         Ok(Stmt::PrintStmt(expr))
+    }
+
+    // forStmt        → "for" "(" ( varDecl | exprStmt | ";" )
+    //                  expression? ";"
+    //                  expression? ")" statement ;
+    fn for_stmt(&mut self) -> Result<Stmt> {
+        self.consume(TokenType::LeftParen)
+            .context("Expect '(' after for.")?;
+        let init = if self.check(SEMICOLON) {
+            None
+        } else if self.next_if_match(VAR) {
+            Some(self.var_decl()?)
+        } else {
+            Some(self.expr_stmt()?)
+        };
+        let cond = if self.check(SEMICOLON) {
+            Expr::Literal(LiteralKind::Boolean(true))
+        } else {
+            self.expression()
+        };
+        self.consume(SEMICOLON)
+            .context("Expect ';' after loop condition.")?;
+
+        let increment = if self.check(RightParen) {
+            None
+        } else {
+            Some(self.expression())
+        };
+        self.consume(RightParen)
+            .context("Expect ')' after for clause.")?;
+        let mut body = self.statement()?;
+
+        if let Some(increment) = increment {
+            body = Stmt::BlockStmt(vec![body, Stmt::ExprStmt(increment)]);
+        }
+
+        let mut stmt = Stmt::While(Box::new(WhileStmt { cond, body }));
+        if let Some(init) = init {
+            stmt = Stmt::BlockStmt(vec![init, stmt]);
+        }
+        Ok(stmt)
+    }
+
+    fn if_stmt(&mut self) -> Result<Stmt> {
+        self.consume(TokenType::LeftBrace)
+            .context("Expect '(' after if.")?;
+        let cond = self.expression();
+        self.consume(TokenType::RightBrace)
+            .context("Expect ')' after if.")?;
+        let then = self.statement()?;
+        let els = if self.next_if_match(ELSE) {
+            Some(self.statement()?)
+        } else {
+            None
+        };
+        Ok(Stmt::IF(Box::new(IfStmt { cond, then, els })))
+    }
+
+    fn while_stmt(&mut self) -> Result<Stmt> {
+        self.consume(TokenType::LeftBrace)
+            .context("Expect '(' after while.")?;
+        let cond = self.expression();
+        self.consume(TokenType::RightBrace)
+            .context("Expect ')' after while.")?;
+        let body = self.statement()?;
+        Ok(Stmt::While(Box::new(WhileStmt { cond, body })))
     }
 
     fn expr_stmt(&mut self) -> Result<Stmt> {
         let expr = self.expression();
         self.next_if_match(SEMICOLON);
-            // .context("Expect ';' after a value")?;
+        // .context("Expect ';' after a value")?;
         Ok(Stmt::ExprStmt(expr))
     }
 
@@ -110,21 +187,49 @@ impl Parser {
         expr
     }
 
-    // ternary        -> equality "?" equality ":" equality
+    // ternary        -> logic_or "?" logic_or ":" logic_or
     fn ternary(&mut self) -> Expr {
-        let cond = self.equality();
+        let cond = self.logic_or();
         if self.next_if_match(QUESTION) {
-            let left = self.equality();
+            let left = self.logic_or();
             self.it
                 .next()
                 .filter(|token| token.ttype == COLON)
                 .expect("expect ':'");
-            let right = self.equality();
+            let right = self.logic_or();
             let ternary = TernaryExpr { cond, left, right };
             Expr::Ternary(Box::new(ternary))
         } else {
             cond
         }
+    }
+
+    // logic_or      -> logic_and ( "or" logic_and)* ;
+    fn logic_or(&mut self) -> Expr {
+        let mut expr = self.logic_and();
+        while self.next_if_match(OR) {
+            let right = self.logic_and();
+            expr = Expr::Logic(Box::new(LogicExpr {
+                is_and: false,
+                left: expr,
+                right,
+            }));
+        }
+        expr
+    }
+
+    // logic_and     -> equality ( "and" equality)* ;
+    fn logic_and(&mut self) -> Expr {
+        let mut expr = self.equality();
+        while self.next_if_match(AND) {
+            let right = self.equality();
+            expr = Expr::Logic(Box::new(LogicExpr {
+                is_and: true,
+                left: expr,
+                right,
+            }));
+        }
+        expr
     }
 
     // equality       → comparison ( ( "!=" | "==" ) comparison )* ;

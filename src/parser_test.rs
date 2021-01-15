@@ -1,4 +1,4 @@
-use crate::ast::{Expr::*, TokenType::*, *};
+use crate::ast::*;
 use super::*;
 
 macro_rules! parser {
@@ -36,7 +36,7 @@ fn unary() {
     let expr = parser.unary();
     let target = UnaryExpr {
         operator: token(BANG),
-        right: literal(LiteralKind::Identifier("a".into())),
+        right: Variable("a".into()),
     };
     assert_eq!(expr, Unary(Box::new(target)));
 }
@@ -47,7 +47,7 @@ fn factor(){
     let expr = parser.factor();
     let left = UnaryExpr {
         operator: token(MINUS),
-        right: literal(LiteralKind::Identifier("a".into())),
+        right: Variable("a".into()),
     };
     let target = BinaryExpr {
         left: Unary(Box::new(left)),
@@ -79,7 +79,7 @@ fn comparison(){
     let mut parser = parser!(IDENTIFIER("a".into()), GreaterEqual, NUMBER(5f64));
     let expr = parser.comparison();
     let target = BinaryExpr {
-        left: literal(LiteralKind::Identifier("a".into())),
+        left: Variable("a".into()),
         operator: token(GreaterEqual),
         right: literal(LiteralKind::Num(5f64)),
     };
@@ -91,7 +91,7 @@ fn equality(){
     let mut parser = parser!(IDENTIFIER("a".into()), BangEqual, NUMBER(5f64));
     let expr = parser.equality();
     let target = BinaryExpr {
-        left: literal(LiteralKind::Identifier("a".into())),
+        left: Variable("a".into()),
         operator: token(BangEqual),
         right: literal(LiteralKind::Num(5f64)),
     };

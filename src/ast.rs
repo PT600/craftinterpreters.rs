@@ -72,6 +72,13 @@ pub enum Expr {
     Ternary(Box<TernaryExpr>),
     Variable(SmolStr),
     Assign(SmolStr, Box<Expr>),
+    Logic(Box<LogicExpr>),
+}
+#[derive(Debug, Clone, PartialEq)]
+pub struct LogicExpr {
+    pub is_and: bool,
+    pub left: Expr,
+    pub right: Expr
 }
 #[derive(Debug, Clone, PartialEq)]
 pub enum LiteralKind {
@@ -152,4 +159,18 @@ pub enum Stmt {
     PrintStmt(Expr),
     VarDecl(SmolStr, Option<Expr>),
     BlockStmt(Vec<Stmt>),
+    IF(Box<IfStmt>),
+    While(Box<WhileStmt>),
+}
+
+#[derive(Debug, PartialEq)]
+pub struct IfStmt {
+    pub cond: Expr,
+    pub then: Stmt,
+    pub els: Option<Stmt>
+}
+#[derive(Debug, PartialEq)]
+pub struct WhileStmt {
+    pub cond: Expr,
+    pub body: Stmt,
 }
