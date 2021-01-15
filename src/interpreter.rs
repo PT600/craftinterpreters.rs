@@ -165,10 +165,9 @@ impl Interpreter {
                         Value::Num(left - right)
                     }
                     MinusEqual => self.ops_assign(expr, MINUS)?,
-                    PLUS => match (left, right) {
+                    PLUS => match (&left, &right) {
                         (Value::Num(left), Value::Num(right)) => Value::Num(left + right),
-                        (Value::String(left), Value::String(right)) => Value::String(left + &right),
-                        _ => bail!("Operands must be two numbers or strings!"),
+                        _ => Value::String(format!("{}{}", left, right)),
                     },
                     PlusEqual => self.ops_assign(expr, PLUS)?,
                     SLASH => {
