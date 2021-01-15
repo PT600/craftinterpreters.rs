@@ -31,6 +31,7 @@ impl<'a> Scanner<'a> {
         keywords.insert("true", TRUE);
         keywords.insert("var", VAR);
         keywords.insert("while", WHILE);
+        keywords.insert("break", Break);
         Scanner {
             it: source.chars().peekable(),
             line: 0,

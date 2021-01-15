@@ -10,6 +10,7 @@ use smol_str::SmolStr;
 
 pub struct Interpreter {
     env: Env,
+    loop_breakings: Vec<bool>,
 }
 
 impl Interpreter {
@@ -18,13 +19,17 @@ impl Interpreter {
             values: HashMap::new(),
             enclosing: None,
         };
-        Self { env }
+        let loop_breakings = vec![];
+        Self {
+            env,
+            loop_breakings,
+        }
     }
     pub fn interpret(&mut self, stmts: Vec<Result<Stmt>>) -> Result<()> {
         for stmt in &stmts {
             match stmt {
                 Ok(stmt) => {
-                    let result = self.eval(stmt);
+                    let result = self.eval_stmt(stmt);
                     result.unwrap_or_else(|err| println!("err: {:?}", err))
                 }
                 Err(err) => {
@@ -35,19 +40,22 @@ impl Interpreter {
         Ok(())
     }
 
-    pub fn eval(&mut self, stmt: &Stmt) -> Result<()> {
+    pub fn eval_stmt(&mut self, stmt: &Stmt) -> Result<()> {
+        if *self.loop_breakings.last().unwrap_or(&false){
+            return Ok(());
+        }
         match stmt {
             Stmt::ExprStmt(expr) => {
-                let value = self.evaluate(expr)?;
+                let value = self.eval_expr(expr)?;
                 println!("{}", value)
             }
             Stmt::PrintStmt(expr) => {
-                let value = self.evaluate(expr)?;
+                let value = self.eval_expr(expr)?;
                 println!("{}", value);
             }
             Stmt::VarDecl(var, expr) => {
                 let v = if let Some(expr) = expr {
-                    self.evaluate(expr)?
+                    self.eval_expr(expr)?
                 } else {
                     Value::Nil
                 };
@@ -63,29 +71,38 @@ impl Interpreter {
                 );
                 self.env.enclosing = Some(Box::new(env));
                 for stmt in block {
-                    self.eval(stmt)?
+                    self.eval_stmt(stmt)?;
                 }
                 let env = *self.env.enclosing.take().expect("Should have enclosing!");
                 self.env = env;
             }
             Stmt::IF(if_stmt) => {
-                let cond = self.evaluate(&if_stmt.cond)?;
+                let cond = self.eval_expr(&if_stmt.cond)?;
                 if cond.is_truthy() {
-                    self.eval(&if_stmt.then)?;
+                    self.eval_stmt(&if_stmt.then)?;
                 } else if let Some(els) = &if_stmt.els {
-                    self.eval(els)?;
+                    self.eval_stmt(els)?;
                 }
             }
             Stmt::While(while_stmt) => {
-                while self.evaluate(&while_stmt.cond)?.is_truthy() {
-                    self.eval(&while_stmt.body)?;
+                self.loop_breakings.push(false);
+                while self.eval_expr(&while_stmt.cond)?.is_truthy() {
+                    self.eval_stmt(&while_stmt.body)?;
+                }
+                self.loop_breakings.pop();
+            }
+            Stmt::Break => {
+                if let Some(breaking_loop) = self.loop_breakings.last_mut() {
+                    *breaking_loop = true;
+                } else {
+                    return bail!("break should be in loop");
                 }
             }
         }
         Ok(())
     }
 
-    pub fn evaluate(&mut self, expr: &Expr) -> Result<Value> {
+    pub fn eval_expr(&mut self, expr: &Expr) -> Result<Value> {
         let value = match expr {
             Literal(kind) => match kind {
                 LiteralKind::Num(num) => Value::Num(*num),
@@ -99,19 +116,19 @@ impl Interpreter {
             }
             Unary(expr) => match &expr.operator.ttype {
                 TokenType::BANG => {
-                    let val = self.evaluate(&expr.right)?;
+                    let val = self.eval_expr(&expr.right)?;
                     Value::Boolean(!val.is_truthy())
                 }
                 TokenType::MINUS => {
-                    let val = self.evaluate(&expr.right)?;
+                    let val = self.eval_expr(&expr.right)?;
                     let val = val.as_num()?;
                     Value::Num(-val)
                 }
                 _ => bail!("Unkown unary operator: {:?}", expr.operator),
             },
             Binary(expr) => {
-                let left = self.evaluate(&expr.left)?;
-                let right = self.evaluate(&expr.right)?;
+                let left = self.eval_expr(&expr.left)?;
+                let right = self.eval_expr(&expr.right)?;
                 match &expr.operator.ttype {
                     BangEqual => Value::Boolean(!left.is_equal(&right)),
                     EqualEqual => Value::Boolean(left.is_equal(&right)),
@@ -152,9 +169,7 @@ impl Interpreter {
                         let right = right.as_num()?;
                         Value::Num(left / right)
                     }
-                    SlashEqual => {
-                        self.ops_assign(expr, SLASH)?
-                    }
+                    SlashEqual => self.ops_assign(expr, SLASH)?,
                     STAR => {
                         let left = left.as_num()?;
                         let right = right.as_num()?;
@@ -164,31 +179,31 @@ impl Interpreter {
                     _ => bail!("Unkown binary operator: {:?}", expr.operator),
                 }
             }
-            Grouping(expr) => self.evaluate(expr)?,
+            Grouping(expr) => self.eval_expr(expr)?,
             Ternary(expr) => {
-                let cond = self.evaluate(&expr.cond)?;
+                let cond = self.eval_expr(&expr.cond)?;
                 match cond {
                     Value::Boolean(cond) => {
                         if cond {
-                            self.evaluate(&expr.left)?
+                            self.eval_expr(&expr.left)?
                         } else {
-                            self.evaluate(&expr.right)?
+                            self.eval_expr(&expr.right)?
                         }
                     }
                     _ => bail!("Operands must be a condition!"),
                 }
             }
             Assign(var, expr) => {
-                let value = self.evaluate(&*expr)?;
+                let value = self.eval_expr(&*expr)?;
                 self.env.assign(var, value.clone())?;
                 value
             }
-            Logic(expr)  => {
-                let left = self.evaluate(&expr.left)?;
-                match(expr.is_and, left.is_truthy()){
+            Logic(expr) => {
+                let left = self.eval_expr(&expr.left)?;
+                match (expr.is_and, left.is_truthy()) {
                     (true, false) | (false, true) => left,
-                    _ => self.evaluate(&expr.right)?
-                } 
+                    _ => self.eval_expr(&expr.right)?,
+                }
             }
         };
         Ok(value)
@@ -199,7 +214,7 @@ impl Interpreter {
         let mut bin_expr = *expr.clone();
         bin_expr.operator.ttype = op;
         let expr = Expr::Binary(Box::new(bin_expr));
-        let result = self.evaluate(&expr)?;
+        let result = self.eval_expr(&expr)?;
         match &left {
             Variable(var) => {
                 self.env.assign(var, result.clone())?;

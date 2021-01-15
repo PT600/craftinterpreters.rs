@@ -54,7 +54,7 @@ pub enum TokenType {
     THIS,
     VAR,
     WHILE,
-
+    Break,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -161,6 +161,7 @@ pub enum Stmt {
     BlockStmt(Vec<Stmt>),
     IF(Box<IfStmt>),
     While(Box<WhileStmt>),
+    Break,
 }
 
 #[derive(Debug, PartialEq)]

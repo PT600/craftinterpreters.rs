@@ -76,6 +76,8 @@ impl Parser {
             self.block_stmt()
         } else if self.next_if_match(WHILE) {
             self.while_stmt()
+        }else if self.next_if_match(Break){
+            self.break_stmt()
         } else {
             self.expr_stmt()
         }
@@ -152,6 +154,11 @@ impl Parser {
             .context("Expect ')' after while.")?;
         let body = self.statement()?;
         Ok(Stmt::While(Box::new(WhileStmt { cond, body })))
+    }
+
+    fn break_stmt(&mut self) -> Result<Stmt> {
+        self.consume(SEMICOLON).context("expect ';' after break")?;
+        Ok(Stmt::Break)
     }
 
     fn expr_stmt(&mut self) -> Result<Stmt> {
