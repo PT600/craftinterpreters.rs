@@ -107,10 +107,16 @@ impl Debug for NativeFun {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct LoxFun {
     pub closure: Rc<RefCell<Env>>,
     pub fun: FunDecl,
+}
+// prevent recursive loop
+impl Debug for LoxFun {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "fun: {:?}", self.fun)
+    }
 }
 
 impl Display for Value {
@@ -170,7 +176,7 @@ pub enum Stmt {
 pub struct FunDecl {
     pub name: SmolStr,
     pub params: Vec<SmolStr>,
-    pub body: Vec<Stmt>,
+    pub body: Box<Stmt>,
 }
 #[derive(Debug, PartialEq, Clone)]
 pub struct IfStmt {

@@ -11,10 +11,11 @@ use smol_str::SmolStr;
 pub struct Interpreter {
     globals: Rc<RefCell<Env>>,
     loop_breakings: Vec<bool>,
+    repl: bool,
 }
 
 impl Interpreter {
-    pub fn new() -> Interpreter {
+    pub fn new(repl: bool) -> Interpreter {
         let globals = Rc::new(RefCell::new(Env::new()));
         globals.borrow_mut().define(
             "clock".into(),
@@ -32,6 +33,7 @@ impl Interpreter {
         Self {
             globals,
             loop_breakings,
+            repl,
         }
     }
     pub fn interpret(&mut self, stmts: Vec<Result<Stmt>>) -> Result<()> {
@@ -64,7 +66,9 @@ impl Interpreter {
         match stmt {
             Stmt::ExprStmt(expr) => {
                 let value = self.eval_expr(expr, env)?;
-                println!("{}", value)
+                if self.repl {
+                    println!("{}", value)
+                }
             }
             Stmt::PrintStmt(expr) => {
                 let value = self.eval_expr(expr, env)?;
@@ -76,7 +80,7 @@ impl Interpreter {
                 } else {
                     Value::Nil
                 };
-                env.borrow_mut().returns(result)
+                env.borrow_mut().returns(result)?;
             }
             Stmt::VarDecl(var, expr) => {
                 let v = if let Some(expr) = expr {
@@ -87,7 +91,7 @@ impl Interpreter {
                 env.borrow_mut().define(var.clone(), v)
             }
             Stmt::BlockStmt(block) => {
-                let env = Rc::new(RefCell::new(Env::new_with_enclosing(env)));
+                let env = Rc::new(RefCell::new(Env::new_with_enclosing(env, false)));
                 for stmt in block {
                     self.execute_stmt(stmt, &env)?;
                 }
@@ -104,7 +108,7 @@ impl Interpreter {
                 self.loop_breakings.push(false);
                 while self.eval_expr(&while_stmt.cond, env)?.is_truthy() {
                     self.execute_stmt(&while_stmt.body, env)?;
-                    if self.is_breaking() {
+                    if self.is_breaking() || env.borrow().is_returned() {
                         break;
                     }
                 }
@@ -252,13 +256,11 @@ impl Interpreter {
                 (fun.callable)(args)
             }
             FunKind::Lox(LoxFun { closure, fun }) => {
-                let env = Rc::new(RefCell::new(Env::new_with_enclosing(closure)));
+                let env = Rc::new(RefCell::new(Env::new_with_enclosing(closure, true)));
                 for (param, arg) in fun.params.iter().zip(args.iter()){
                     env.borrow_mut().define(param.clone(), arg.clone());
                 }
-                for stmt in &fun.body {
-                    self.execute_stmt(stmt, &env)?;
-                }
+                self.execute_stmt(&*fun.body, &env)?;
                 let result = env.borrow().returned();
                 Ok(result)
             }

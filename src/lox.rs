@@ -1,55 +1,45 @@
-use anyhow::{bail, Error, Result};
-use crate::interpreter::Interpreter; 
+use crate::interpreter::Interpreter;
 use crate::parser::{self, Parser};
 use crate::scanner::Scanner;
-use crate::ast::*;
-use std::io::{self};
+use anyhow::{bail, Error, Result};
 use std::fs;
+use std::io::{self};
 
-
-pub struct Lox {
-    interpreter: Interpreter,
+pub fn run_file(path: &str) -> Result<()> {
+    let mut interpreter = Interpreter::new(false);
+    let content = fs::read_to_string(path)?;
+    run(&mut interpreter, content)?;
+    Ok(())
 }
 
-impl Lox {
-    pub fn new() -> Self {
-        let interpreter = Interpreter::new();
-        Lox { interpreter }
-    }
-    pub fn run_file(&mut self, path: &str) -> Result<()> {
-        let content = fs::read_to_string(path)?;
-        self.run(content)?;
-        Ok(())
-    }
-
-    pub fn run_prompt(&mut self) -> Result<()> {
-        println!("Welcome to Lox console!");
-        let stdin = io::stdin(); // We get `Stdin` here.
-        loop {
-            let mut buffer = String::new();
-            let size = stdin.read_line(&mut buffer)?;
-            if size == 0 || buffer.eq("quit\n") {
-                break;
-            }
-            self.run(buffer)?;
-            // println!("=>{:?}", value);
+pub fn run_prompt() -> Result<()> {
+    println!("Welcome to Lox console!");
+    let mut interpreter = Interpreter::new(true);
+    let stdin = io::stdin(); // We get `Stdin` here.
+    loop {
+        let mut buffer = String::new();
+        let size = stdin.read_line(&mut buffer)?;
+        if size == 0 || buffer.eq("quit\n") {
+            break;
         }
-        Ok(())
+        run(&mut interpreter, buffer)?;
+        // println!("=>{:?}", value);
     }
+    Ok(())
+}
 
-    fn run(&mut self, source: String) -> Result<()> {
-        let mut scanner = Scanner::new(&source);
-        scanner.scan_tokens()?;
-        let mut parser = Parser::new(scanner.tokens);
-        let expr = parser.parse();
-        self.interpreter.interpret(expr)
-    }
+fn run(interpreter: &mut Interpreter, source: String) -> Result<()> {
+    let mut scanner = Scanner::new(&source);
+    scanner.scan_tokens()?;
+    let mut parser = Parser::new(scanner.tokens);
+    let expr = parser.parse();
+    interpreter.interpret(expr)
+}
 
-    fn error(&self, line: usize, message: &str) -> Result<()> {
-        self.report(line, "", message)
-    }
+fn error(line: usize, message: &str) -> Result<()> {
+    report(line, "", message)
+}
 
-    fn report(&self, line: usize, location: &str, message: &str) -> Result<()> {
-        bail!("[line {} ] Error {}: {}", line, location, message)
-    }
+fn report(line: usize, location: &str, message: &str) -> Result<()> {
+    bail!("[line {} ] Error {}: {}", line, location, message)
 }

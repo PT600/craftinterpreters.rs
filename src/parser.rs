@@ -62,7 +62,7 @@ impl Parser {
             .context(format!("Expect ')' after {} name.", kind))?;
         self.consume(LeftBrace)
             .context(format!("Expect 'LeftBrace' before {} body.", kind))?;
-        let body = self.block_stmt()?;
+        let body = Box::new(self.block_stmt()?);
         Ok(Stmt::FunDecl(FunDecl { name, params, body }))
     }
 
@@ -107,7 +107,7 @@ impl Parser {
         } else if self.next_if_match(IF) {
             self.if_stmt()
         } else if self.next_if_match(LeftBrace) {
-            Ok(Stmt::BlockStmt(self.block_stmt()?))
+            self.block_stmt()
         } else if self.next_if_match(WHILE) {
             self.while_stmt()
         } else if self.next_if_match(Break) {
@@ -215,12 +215,12 @@ impl Parser {
     }
 
     // block    -> "{" declaration* "}"
-    fn block_stmt(&mut self) -> Result<Vec<Stmt>> {
+    fn block_stmt(&mut self) -> Result<Stmt> {
         let mut stmts = vec![];
         while !self.next_if_match(RightBrace) {
             stmts.push(self.declaration()?);
         }
-        Ok(stmts)
+        Ok(Stmt::BlockStmt(stmts))
     }
 
     fn expression(&mut self) -> Expr {
