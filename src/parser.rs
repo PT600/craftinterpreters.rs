@@ -1,6 +1,7 @@
-use crate::ast::Expr;
-use crate::ast::{Expr::*, TokenType::*, *};
+use crate::ast::{Expr::*, *};
+use crate::scanner::{Token, TokenType::*, *};
 use anyhow::{bail, Context, Result};
+use smol_str::SmolStr;
 use std::iter::Peekable;
 use std::vec::IntoIter;
 
@@ -26,9 +27,11 @@ impl Parser {
         Self::new(tokens).expression()
     }
 
-    // decl     -> var_decl | statement
+    // decl     -> fun_decl | var_decl | statement
     fn declaration(&mut self) -> Result<Stmt> {
-        let stmt = if self.next_if_match(VAR) {
+        let stmt = if self.next_if_match(FUN) {
+            self.fun_decl("function")
+        } else if self.next_if_match(VAR) {
             self.var_decl()
         } else {
             self.statement()
@@ -39,44 +42,75 @@ impl Parser {
         stmt
     }
 
+    // fun_decl    -> "fun" identifier "(" parameters? ")" block ;
+    fn fun_decl(&mut self, kind: &'static str) -> Result<Stmt> {
+        let name = self.consume_identifier()?;
+        self.consume(LeftParen)
+            .context(format!("Expect '(' after {} name.", kind))?;
+        let mut params = vec![];
+        if !self.check(RightParen) {
+            loop {
+                assert!(params.len() < 255, "Can't have more than 255 parameters.");
+                let param = self.consume_identifier()?;
+                params.push(param);
+                if !self.next_if_match(COMMA) {
+                    break;
+                }
+            }
+        }
+        self.consume(RightParen)
+            .context(format!("Expect ')' after {} name.", kind))?;
+        self.consume(LeftBrace)
+            .context(format!("Expect 'LeftBrace' before {} body.", kind))?;
+        let body = self.block_stmt()?;
+        Ok(Stmt::FunDecl(FunDecl { name, params, body }))
+    }
+
     // var_decl   -> "var" identifier ("=" expression)? ";";
     fn var_decl(&mut self) -> Result<Stmt> {
+        let var = self.consume_identifier()?;
+        let stmt = if self.next_if_match(EQUAL) {
+            Stmt::VarDecl(var, Some(self.expression()))
+        } else {
+            Stmt::VarDecl(var, None)
+        };
+        self.consume(SEMICOLON)
+            .context("Expect ';' after a value")?;
+        return Ok(stmt);
+    }
+
+    fn consume_identifier(&mut self) -> Result<SmolStr> {
         if let Some(token) = self.it.next() {
             match token.ttype {
                 IDENTIFIER(var) => {
-                    let stmt = if self.next_if_match(EQUAL) {
-                        Stmt::VarDecl(var, Some(self.expression()))
-                    } else {
-                        Stmt::VarDecl(var, None)
-                    };
-                    self.consume(SEMICOLON)
-                        .context("Expect ';' after a value")?;
-                    return Ok(stmt);
+                    return Ok(var);
                 }
                 _ => {}
             }
         }
         bail!("expect identifier!")
     }
-
     // statement  -> expr_stmt
     //             | for_stmt
     //             | if_stmt
     //             | print_stmt
+    //             | return_stmt
     //             | while_stmt
     //             | block;
     fn statement(&mut self) -> Result<Stmt> {
         if self.next_if_match(PRINT) {
             self.print_stmt()
+        } else if self.next_if_match(RETURN) {
+            self.return_stmt()
         } else if self.next_if_match(FOR) {
             self.for_stmt()
         } else if self.next_if_match(IF) {
             self.if_stmt()
         } else if self.next_if_match(LeftBrace) {
-            self.block_stmt()
+            Ok(Stmt::BlockStmt(self.block_stmt()?))
         } else if self.next_if_match(WHILE) {
             self.while_stmt()
-        }else if self.next_if_match(Break){
+        } else if self.next_if_match(Break) {
             self.break_stmt()
         } else {
             self.expr_stmt()
@@ -89,6 +123,18 @@ impl Parser {
         // .context("Expect ';' after a value")?;
         Ok(Stmt::PrintStmt(expr))
     }
+
+    // return       -> "return" expression? ";";
+    fn return_stmt(&mut self) -> Result<Stmt> {
+        let expr = if self.check(SEMICOLON){
+            None
+        }else {
+            Some(self.expression())
+        };
+        self.consume(SEMICOLON); //.context("Expect ';' after return")?;
+        Ok(Stmt::ReturnStmt(expr))
+    }
+
 
     // forStmt        → "for" "(" ( varDecl | exprStmt | ";" )
     //                  expression? ";"
@@ -169,12 +215,12 @@ impl Parser {
     }
 
     // block    -> "{" declaration* "}"
-    fn block_stmt(&mut self) -> Result<Stmt> {
+    fn block_stmt(&mut self) -> Result<Vec<Stmt>> {
         let mut stmts = vec![];
         while !self.next_if_match(RightBrace) {
             stmts.push(self.declaration()?);
         }
-        Ok(Stmt::BlockStmt(stmts))
+        Ok(stmts)
     }
 
     fn expression(&mut self) -> Expr {
@@ -319,7 +365,7 @@ impl Parser {
         expr
     }
 
-    // unary          → ( "!" | "-" ) unary | primary ;
+    // unary          → ( "!" | "-" ) unary | call ;
     fn unary(&mut self) -> Expr {
         if let Some(token) = self.it.peek() {
             match &token.ttype {
@@ -331,7 +377,41 @@ impl Parser {
                 _ => {}
             }
         }
-        self.primary()
+        self.call()
+    }
+
+    // call         -> primary ( "(" arguments? ")" )* ;
+    fn call(&mut self) -> Expr {
+        let mut expr = self.primary();
+        loop {
+            if self.next_if_match(LeftParen) {
+                expr = self.finish_call(expr);
+            } else {
+                break;
+            }
+        }
+        expr
+    }
+
+    fn finish_call(&mut self, callee: Expr) -> Expr {
+        let mut arguments = vec![];
+        if !self.check(RightParen) {
+            loop {
+                assert!(arguments.len() < 255, "Can't have more than 255 arguments.");
+                arguments.push(self.expression());
+                if !self.next_if_match(COMMA) {
+                    break;
+                }
+            }
+        }
+        let paren = self
+            .consume(RightParen)
+            .expect("Expect ')' after arguments.");
+        Expr::Call(Box::new(CallExpr {
+            callee,
+            paren,
+            arguments,
+        }))
     }
 
     //primary        → NUMBER | STRING | "true" | "false" | "nil"

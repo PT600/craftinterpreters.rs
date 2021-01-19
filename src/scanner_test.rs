@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crate::scanner::Scanner;
 use crate::ast::*;
+use crate::scanner::*;
 
 
 #[test]

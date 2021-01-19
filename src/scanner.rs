@@ -1,16 +1,75 @@
-use crate::ast::{TokenType::*, *};
 use anyhow::{bail, Result};
 use smol_str::SmolStr;
-use std::collections::{HashMap, HashSet};
-use std::iter::{FromIterator, Peekable};
+use std::{collections::HashMap, iter::Peekable};
 use std::str::Chars;
+#[derive(Debug, PartialEq, Clone)]
+pub enum TokenType {
+    // Single-character tokens.
+    LeftParen,
+    RightParen,
+    LeftBrace,
+    RightBrace,
+    COMMA,
+    DOT,
+    MINUS,
+    MinusEqual,
+    PLUS,
+    PlusEqual,
+    SEMICOLON,
+    SLASH,
+    SlashEqual,
+    STAR,
+    StarEqual,
+    QUESTION,
+    COLON,
 
+    // One or two character tokens.
+    BANG,
+    BangEqual,
+    EQUAL,
+    EqualEqual,
+    GREATER,
+    GreaterEqual,
+    LESS,
+    LessEqual,
+
+    // Literals.
+    IDENTIFIER(SmolStr),
+    STRING(String),
+    NUMBER(f64),
+
+    AND,
+    CLASS,
+    ELSE,
+    FALSE,
+    TRUE,
+    FUN,
+    FOR,
+    IF,
+    NIL,
+    OR,
+    PRINT,
+    RETURN,
+    SUPER,
+    THIS,
+    VAR,
+    WHILE,
+    Break,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct Token {
+    pub ttype: TokenType,
+    pub line: usize,
+}
 pub struct Scanner<'a> {
     it: Peekable<Chars<'a>>,
     line: usize,
     keywords: HashMap<&'static str, TokenType>,
     pub tokens: Vec<Token>,
 }
+
+use TokenType::*;
 
 impl<'a> Scanner<'a> {
     pub fn new(source: &'a str) -> Self {

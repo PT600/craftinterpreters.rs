@@ -1,67 +1,11 @@
-use std::fmt::{Display, write};
+use std::{cell::RefCell, fmt::{self, Display}, rc::Rc};
 
+use crate::{enviorment::Env, scanner::*};
 use anyhow::{Result, bail};
+use fmt::Debug;
 use smol_str::SmolStr;
-#[derive(Debug, PartialEq, Clone)]
-pub enum TokenType {
-    // Single-character tokens.
-    LeftParen,
-    RightParen,
-    LeftBrace,
-    RightBrace,
-    COMMA,
-    DOT,
-    MINUS,
-    MinusEqual,
-    PLUS,
-    PlusEqual,
-    SEMICOLON,
-    SLASH,
-    SlashEqual,
-    STAR,
-    StarEqual,
-    QUESTION,
-    COLON,
 
-    // One or two character tokens.
-    BANG,
-    BangEqual,
-    EQUAL,
-    EqualEqual,
-    GREATER,
-    GreaterEqual,
-    LESS,
-    LessEqual,
-
-    // Literals.
-    IDENTIFIER(SmolStr),
-    STRING(String),
-    NUMBER(f64),
-
-    AND,
-    CLASS,
-    ELSE,
-    FALSE,
-    TRUE,
-    FUN,
-    FOR,
-    IF,
-    NIL,
-    OR,
-    PRINT,
-    RETURN,
-    SUPER,
-    THIS,
-    VAR,
-    WHILE,
-    Break,
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct Token {
-    pub ttype: TokenType,
-    pub line: usize,
-}
+use crate::interpreter::Interpreter;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
@@ -73,6 +17,14 @@ pub enum Expr {
     Variable(SmolStr),
     Assign(SmolStr, Box<Expr>),
     Logic(Box<LogicExpr>),
+    Call(Box<CallExpr>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CallExpr {
+    pub callee: Expr,
+    pub paren: Token,
+    pub arguments: Vec<Expr>
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct LogicExpr {
@@ -108,16 +60,59 @@ pub struct TernaryExpr {
     pub right: Expr,
 }
 
-pub struct Object {}
-
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone)]
 pub enum Value {
     Boolean(bool),
     Num(f64),
     Nil,
     String(String),
+    Fun(FunKind),
     // Object(Object),
 }
+#[derive(Debug, Clone)]
+pub enum FunKind {
+    Native(NativeFun),
+    Lox(LoxFun)
+}
+
+use FunKind::*;
+impl FunKind {
+    pub fn arity(&self) -> usize {
+        match self {
+            Native(fun) => fun.arity as usize,
+            Lox(fun) => fun.fun.params.len(),
+        }
+    }
+
+}
+impl Display for FunKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Native(fun) => write!(f, "Native({})", fun.name),
+            Lox(fun) => write!(f, "LoxFun({})", fun.fun.name)
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct NativeFun {
+    pub name: SmolStr,
+    pub arity: u8,
+    pub callable: fn(&[Value]) -> Result<Value>,
+}
+
+impl Debug for NativeFun {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "NativeFun({})", self.name)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct LoxFun {
+    pub closure: Rc<RefCell<Env>>,
+    pub fun: FunDecl,
+}
+
 impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -125,6 +120,7 @@ impl Display for Value {
             Value::Num(num) => write!(f, "{}",  num),
             Value::Nil => write!(f, "nil"),
             Value::String(content) => write!(f, "{}", content),
+            Value::Fun(fun) => write!(f, "({})", fun),
         }
     }
 }
@@ -145,32 +141,44 @@ impl Value {
         }
     }
 
-    pub fn is_equal(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Value::Nil, _) | (_, Value::Nil) => false,
-            _ => self == other,
+    pub fn is_equals(&self, rhs: &Value) -> bool {
+        match (self, rhs) {
+            (Value::Num(n1), Value::Num(n2)) => (n1 - n2).abs() < f64::EPSILON,
+            (Value::String(s1), Value::String(s2)) => s1 == s2,
+            (Value::Boolean(b1), Value::Boolean(b2)) => b1 == b2,
+            (Value::Nil, Value::Nil) => true,
+            (_, _) => false,
         }
-    }
+    } 
 }
 
-#[derive(Debug, PartialEq)]
+
+#[derive(Debug, PartialEq, Clone)]
 pub enum Stmt {
     ExprStmt(Expr),
     PrintStmt(Expr),
+    ReturnStmt(Option<Expr>),
     VarDecl(SmolStr, Option<Expr>),
     BlockStmt(Vec<Stmt>),
     IF(Box<IfStmt>),
     While(Box<WhileStmt>),
     Break,
+    FunDecl(FunDecl)
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
+pub struct FunDecl {
+    pub name: SmolStr,
+    pub params: Vec<SmolStr>,
+    pub body: Vec<Stmt>,
+}
+#[derive(Debug, PartialEq, Clone)]
 pub struct IfStmt {
     pub cond: Expr,
     pub then: Stmt,
     pub els: Option<Stmt>
 }
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct WhileStmt {
     pub cond: Expr,
     pub body: Stmt,

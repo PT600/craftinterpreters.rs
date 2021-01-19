@@ -1,0 +1,11 @@
+
+var a = 1;
+
+fun add(b) {
+    print "enter add, a = " + a;
+    a += b;
+    print "leave add, a = " + a;
+}
+
+add(5);
+print a;
