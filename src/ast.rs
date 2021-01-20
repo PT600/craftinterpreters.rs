@@ -66,10 +66,10 @@ pub enum Value {
     Num(f64),
     Nil,
     String(String),
-    Fun(FunKind),
+    Fun(Rc<FunKind>),
     // Object(Object),
 }
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum FunKind {
     Native(NativeFun),
     Lox(LoxFun)
@@ -94,7 +94,6 @@ impl Display for FunKind {
     }
 }
 
-#[derive(Clone)]
 pub struct NativeFun {
     pub name: SmolStr,
     pub arity: u8,
@@ -107,7 +106,6 @@ impl Debug for NativeFun {
     }
 }
 
-#[derive(Clone)]
 pub struct LoxFun {
     pub closure: Rc<RefCell<Env>>,
     pub fun: FunDecl,

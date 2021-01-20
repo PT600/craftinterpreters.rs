@@ -19,7 +19,7 @@ impl Interpreter {
         let globals = Rc::new(RefCell::new(Env::new()));
         globals.borrow_mut().define(
             "clock".into(),
-            Value::Fun(FunKind::Native(NativeFun {
+            Value::Fun(Rc::new(FunKind::Native(NativeFun {
                 name: "clock".into(),
                 arity: 0,
                 callable: |_| {
@@ -27,7 +27,7 @@ impl Interpreter {
                     let since_epoch = start.duration_since(UNIX_EPOCH)?;
                     Ok(Value::Num(since_epoch.as_millis() as f64))
                 },
-            })),
+            }))),
         );
         let loop_breakings = vec![];
         Self {
@@ -37,6 +37,7 @@ impl Interpreter {
         }
     }
     pub fn interpret(&mut self, stmts: Vec<Result<Stmt>>) -> Result<()> {
+        println!("start interpret, globals.ref.count: {}", Rc::strong_count(&self.globals));
         for stmt in &stmts {
             match stmt {
                 Ok(stmt) => {
@@ -48,6 +49,7 @@ impl Interpreter {
                 }
             }
         }
+        println!("after interpret, globals.ref.count: {}", Rc::strong_count(&self.globals));
         Ok(())
     }
 
@@ -124,7 +126,7 @@ impl Interpreter {
             Stmt::FunDecl(fun ) => {
                 let name = fun.name.clone();
                 let fun = LoxFun { closure: env.clone(), fun: fun.clone() };
-                env.borrow_mut().define(name, Value::Fun(FunKind::Lox(fun)));
+                env.borrow_mut().define(name, Value::Fun(Rc::new(FunKind::Lox(fun))));
             }
         }
         Ok(())
