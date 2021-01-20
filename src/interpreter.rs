@@ -1,4 +1,8 @@
-use std::{cell::{Cell, RefCell}, collections::HashMap, mem, rc::Rc, time::{SystemTime, UNIX_EPOCH}};
+use std::{
+    cell::RefCell,
+    rc::Rc,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use crate::{
     ast::{Expr::*, *},
@@ -37,7 +41,10 @@ impl Interpreter {
         }
     }
     pub fn interpret(&mut self, stmts: Vec<Result<Stmt>>) -> Result<()> {
-        println!("start interpret, globals.ref.count: {}", Rc::strong_count(&self.globals));
+        println!(
+            "start interpret, globals.ref.count: {}",
+            Rc::strong_count(&self.globals)
+        );
         for stmt in &stmts {
             match stmt {
                 Ok(stmt) => {
@@ -49,7 +56,10 @@ impl Interpreter {
                 }
             }
         }
-        println!("after interpret, globals.ref.count: {}", Rc::strong_count(&self.globals));
+        println!(
+            "after interpret, globals.ref.count: {}",
+            Rc::strong_count(&self.globals)
+        );
         Ok(())
     }
 
@@ -123,10 +133,14 @@ impl Interpreter {
                     return bail!("break should be in loop");
                 }
             }
-            Stmt::FunDecl(fun ) => {
+            Stmt::FunDecl(fun) => {
                 let name = fun.name.clone();
-                let fun = LoxFun { closure: env.clone(), fun: fun.clone() };
-                env.borrow_mut().define(name, Value::Fun(Rc::new(FunKind::Lox(fun))));
+                let fun = LoxFun {
+                    closure: Rc::downgrade(env),
+                    fun: fun.clone(),
+                };
+                env.borrow_mut()
+                    .define(name, Value::Fun(Rc::new(FunKind::Lox(fun))));
             }
         }
         Ok(())
@@ -140,9 +154,7 @@ impl Interpreter {
                 LiteralKind::Nil => Value::Nil,
                 LiteralKind::String(content) => Value::String(content.clone()),
             },
-            Variable(var) => {
-                env.borrow().get(var)?
-            }
+            Variable(var) => env.borrow().get(var)?,
             Unary(expr) => match &expr.operator.ttype {
                 TokenType::BANG => {
                     let val = self.eval_expr(&expr.right, env)?;
@@ -252,23 +264,30 @@ impl Interpreter {
         Ok(value)
     }
 
-    pub fn call(&mut self, fun: &FunKind, args: &[Value]) -> Result<Value>{
+    pub fn call(&mut self, fun: &FunKind, args: &[Value]) -> Result<Value> {
         match fun {
-            FunKind::Native(fun) => {
-                (fun.callable)(args)
-            }
+            FunKind::Native(fun) => (fun.callable)(args),
             FunKind::Lox(LoxFun { closure, fun }) => {
-                let env = Rc::new(RefCell::new(Env::new_with_enclosing(closure, true)));
-                for (param, arg) in fun.params.iter().zip(args.iter()){
-                    env.borrow_mut().define(param.clone(), arg.clone());
+                if let Some(closure) = closure.upgrade() {
+                    let env = Rc::new(RefCell::new(Env::new_with_enclosing(&closure, true)));
+                    for (param, arg) in fun.params.iter().zip(args.iter()) {
+                        env.borrow_mut().define(param.clone(), arg.clone());
+                    }
+                    self.execute_stmt(&*fun.body, &env)?;
+                    let result = env.borrow().returned();
+                    Ok(result)
+                } else {
+                    bail!("Closure can't be called outside of declaration!")
                 }
-                self.execute_stmt(&*fun.body, &env)?;
-                let result = env.borrow().returned();
-                Ok(result)
             }
         }
     }
-    fn ops_assign(&mut self, expr: &Box<BinaryExpr>, op: TokenType, env: &Rc<RefCell<Env>>) -> Result<Value> {
+    fn ops_assign(
+        &mut self,
+        expr: &Box<BinaryExpr>,
+        op: TokenType,
+        env: &Rc<RefCell<Env>>,
+    ) -> Result<Value> {
         let left = &expr.left;
         let mut bin_expr = *expr.clone();
         bin_expr.operator.ttype = op;
@@ -286,7 +305,6 @@ impl Interpreter {
     fn lookup(&self, name: &SmolStr) -> Result<Value> {
         self.globals.borrow().get(name)
     }
-    
 }
 
 #[cfg(test)]

@@ -1,11 +1,9 @@
-use std::{cell::RefCell, fmt::{self, Display}, rc::Rc};
+use std::{cell::RefCell, fmt::{self, Display}, rc::{Rc, Weak}};
 
 use crate::{enviorment::Env, scanner::*};
 use anyhow::{Result, bail};
 use fmt::Debug;
 use smol_str::SmolStr;
-
-use crate::interpreter::Interpreter;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
@@ -107,7 +105,7 @@ impl Debug for NativeFun {
 }
 
 pub struct LoxFun {
-    pub closure: Rc<RefCell<Env>>,
+    pub closure: Weak<RefCell<Env>>,
     pub fun: FunDecl,
 }
 // prevent recursive loop

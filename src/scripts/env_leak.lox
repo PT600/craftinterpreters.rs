@@ -1,0 +1,10 @@
+var a = 1;
+
+fun inc() {
+    a += 1;
+    print a;
+}
+
+inc();
+a += 1;
+inc();
