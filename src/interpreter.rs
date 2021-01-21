@@ -6,18 +6,19 @@ use std::{
 
 use crate::{
     ast::{Expr::*, *},
+    value::*,
     enviorment::Env,
     scanner::{TokenType::*, *},
 };
 use anyhow::{bail, Result};
 use smol_str::SmolStr;
+use slotmap::SlotMap;
 
 pub struct Interpreter {
     globals: Rc<RefCell<Env>>,
     loop_breakings: Vec<bool>,
     repl: bool,
 }
-
 impl Interpreter {
     pub fn new(repl: bool) -> Interpreter {
         let globals = Rc::new(RefCell::new(Env::new()));

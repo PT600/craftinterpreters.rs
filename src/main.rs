@@ -1,4 +1,5 @@
 mod ast;
+mod value;
 mod ast_printer;
 mod enviorment;
 mod interpreter;
@@ -6,10 +7,9 @@ mod lox;
 mod parser;
 mod scanner;
 
-use anyhow::{bail, Error, Result};
-use std::{io::{self, Read}, ops::Deref, sync::Arc};
+use anyhow::Result;
 use std::process::exit;
-use std::{env, fs};
+use std::env;
 
 fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();

@@ -8,3 +8,7 @@ fun inc() {
 inc();
 a += 1;
 inc();
+
+var d = inc;
+d();
+d();

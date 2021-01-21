@@ -1,8 +1,9 @@
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, ffi::FromBytesWithNulError, rc::Rc};
 
-use crate::ast::Value;
 use anyhow::{bail, Context, Result};
 use smol_str::SmolStr;
+
+use crate::value::Value;
 
 #[derive(Clone, Default, Debug)]
 pub struct Env {
@@ -70,6 +71,9 @@ impl Env {
     }
 
     pub fn returns(&mut self, value: Value) -> Result<()> {
+        // if matches!(value, Value::Fun(_)) {
+            // bail!("Return function is not support!")
+        // }else 
         if self.is_call {
             assert!(self.returns.is_none(), "return is already set!");
             self.returns = Some(value);

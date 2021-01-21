@@ -1,0 +1,12 @@
+var a;
+fun outer(){
+    fun inner(){
+        return "inner";
+    }
+    a = inner;
+}
+
+
+outer();
+
+print a();
