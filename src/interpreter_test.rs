@@ -1,7 +1,6 @@
-use std::{cell::RefCell, rc::Rc};
 
-use crate::{ast::{Expr, Value}, enviorment::Env, parser::{self, Parser}, scanner::Scanner};
-use anyhow::{Result, Context};
+use crate::{ast::Expr, parser::Parser, scanner::Scanner, value::*};
+use anyhow::Result;
 
 use super::Interpreter;
 
@@ -18,7 +17,7 @@ fn eval(interpreter: &mut Interpreter, source: &'static str) -> Result<()> {
 
 #[test]
 fn varirable(){
-    let mut it = Interpreter::new();
+    let mut it = Interpreter::new(false);
     let result = eval(&mut it, "var a = \"abc\";");
     assert!(result.is_ok());
     let val = it.lookup(&"a".into());

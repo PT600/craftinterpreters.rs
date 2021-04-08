@@ -6,6 +6,7 @@ mod interpreter;
 mod lox;
 mod parser;
 mod scanner;
+mod bytecode;
 
 use anyhow::Result;
 use std::process::exit;

@@ -1,30 +1,33 @@
 use std::{
     cell::RefCell,
+    collections::HashMap,
     rc::Rc,
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use crate::{
     ast::{Expr::*, *},
-    value::*,
     enviorment::Env,
     scanner::{TokenType::*, *},
+    value::*,
 };
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use smol_str::SmolStr;
-use slotmap::SlotMap;
 
 pub struct Interpreter {
     globals: Rc<RefCell<Env>>,
     loop_breakings: Vec<bool>,
     repl: bool,
+    funs: HashMap<FunId, LoxFun>,
+    max_fun_id: FunId,
 }
+
 impl Interpreter {
     pub fn new(repl: bool) -> Interpreter {
         let globals = Rc::new(RefCell::new(Env::new()));
         globals.borrow_mut().define(
             "clock".into(),
-            Value::Fun(Rc::new(FunKind::Native(NativeFun {
+            Value::NativeFun(Rc::new(NativeFun {
                 name: "clock".into(),
                 arity: 0,
                 callable: |_| {
@@ -32,20 +35,23 @@ impl Interpreter {
                     let since_epoch = start.duration_since(UNIX_EPOCH)?;
                     Ok(Value::Num(since_epoch.as_millis() as f64))
                 },
-            }))),
+            })),
         );
         let loop_breakings = vec![];
         Self {
             globals,
             loop_breakings,
             repl,
+            funs: Default::default(),
+            max_fun_id: 0,
         }
     }
+
+    fn next_fun_id(&mut self) -> FunId {
+        self.max_fun_id += 1;
+        self.max_fun_id
+    }
     pub fn interpret(&mut self, stmts: Vec<Result<Stmt>>) -> Result<()> {
-        println!(
-            "start interpret, globals.ref.count: {}",
-            Rc::strong_count(&self.globals)
-        );
         for stmt in &stmts {
             match stmt {
                 Ok(stmt) => {
@@ -57,10 +63,6 @@ impl Interpreter {
                 }
             }
         }
-        println!(
-            "after interpret, globals.ref.count: {}",
-            Rc::strong_count(&self.globals)
-        );
         Ok(())
     }
 
@@ -108,6 +110,9 @@ impl Interpreter {
                 for stmt in block {
                     self.execute_stmt(stmt, &env)?;
                 }
+                println!("before env.strong_count: {}", Rc::strong_count(&env));
+                self.expire_funs(env.borrow().level);
+                println!("after env.strong_count: {}", Rc::strong_count(&env));
             }
             Stmt::IF(if_stmt) => {
                 let cond = self.eval_expr(&if_stmt.cond, env)?;
@@ -137,11 +142,14 @@ impl Interpreter {
             Stmt::FunDecl(fun) => {
                 let name = fun.name.clone();
                 let fun = LoxFun {
-                    closure: Rc::downgrade(env),
-                    fun: fun.clone(),
+                    id: self.next_fun_id(),
+                    closure: Rc::clone(env),
+                    decl: fun.clone(),
+                    ref_level: env.borrow().level,
                 };
                 env.borrow_mut()
-                    .define(name, Value::Fun(Rc::new(FunKind::Lox(fun))));
+                    .define(name.clone(), Value::LoxFun(fun.id, name));
+                self.funs.insert(fun.id, fun);
             }
         }
         Ok(())
@@ -236,7 +244,16 @@ impl Interpreter {
             }
             Assign(var, expr) => {
                 let value = self.eval_expr(&*expr, env)?;
-                env.borrow_mut().assign(var, value.clone())?;
+                let level = env.borrow_mut().assign(var, value.clone())?;
+                if let Value::LoxFun(id, _) = value {
+                    let fun = self
+                        .funs
+                        .get_mut(&id)
+                        .context(format!("Can't find fun with id: {}", id))?;
+                    if level < fun.ref_level {
+                        fun.ref_level = level;
+                    }
+                }
                 value
             }
             Logic(expr) => {
@@ -248,41 +265,39 @@ impl Interpreter {
             }
             Call(call) => {
                 let callee = self.eval_expr(&call.callee, env)?;
-                if let Value::Fun(fun) = callee {
-                    let args: Result<Vec<Value>> = call
-                        .arguments
-                        .iter()
-                        .map(|arg| self.eval_expr(arg, env))
-                        .collect();
-                    let args = args?;
-                    assert_eq!(args.len(), fun.arity(), "args's len not match!");
-                    self.call(&fun, &args)?
-                } else {
-                    return bail!("{} is not a fun", callee);
+                let args: Result<Vec<Value>> = call
+                    .arguments
+                    .iter()
+                    .map(|arg| self.eval_expr(arg, env))
+                    .collect();
+                let args = args?;
+                return match callee {
+                    Value::NativeFun(fun) => {
+                        assert_eq!(args.len(), fun.arity, "args's len not match!");
+                        (fun.callable)(&args)
+                    }
+                    Value::LoxFun(id, _) => {
+                        let fun = self
+                            .funs
+                            .get(&id)
+                            .context(format!("can't find fun with id: {}", id))?;
+                        assert_eq!(args.len(), fun.decl.params.len(), "args's len not match!");
+                        let env =
+                            Rc::new(RefCell::new(Env::new_with_enclosing(&fun.closure, true)));
+                        for (param, arg) in fun.decl.params.iter().zip(args.iter()) {
+                            env.borrow_mut().define(param.clone(), arg.clone());
+                        }
+                        self.execute_stmt(&*fun.decl.body.clone(), &env)?;
+                        let result = env.borrow().returned();
+                        Ok(result)
+                    },
+                    _ => bail!("{} is not a fun!", callee),
                 }
             }
         };
         Ok(value)
     }
 
-    pub fn call(&mut self, fun: &FunKind, args: &[Value]) -> Result<Value> {
-        match fun {
-            FunKind::Native(fun) => (fun.callable)(args),
-            FunKind::Lox(LoxFun { closure, fun }) => {
-                if let Some(closure) = closure.upgrade() {
-                    let env = Rc::new(RefCell::new(Env::new_with_enclosing(&closure, true)));
-                    for (param, arg) in fun.params.iter().zip(args.iter()) {
-                        env.borrow_mut().define(param.clone(), arg.clone());
-                    }
-                    self.execute_stmt(&*fun.body, &env)?;
-                    let result = env.borrow().returned();
-                    Ok(result)
-                } else {
-                    bail!("Closure can't be called outside of declaration!")
-                }
-            }
-        }
-    }
     fn ops_assign(
         &mut self,
         expr: &Box<BinaryExpr>,
@@ -305,6 +320,10 @@ impl Interpreter {
 
     fn lookup(&self, name: &SmolStr) -> Result<Value> {
         self.globals.borrow().get(name)
+    }
+
+    pub fn expire_funs(&mut self, level: u8) {
+        self.funs.retain(|_, f| f.ref_level < level);
     }
 }
 

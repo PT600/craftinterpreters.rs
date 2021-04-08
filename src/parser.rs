@@ -2,7 +2,7 @@ use crate::ast::{Expr::*, *};
 use crate::scanner::{Token, TokenType::*, *};
 use anyhow::{bail, Context, Result};
 use smol_str::SmolStr;
-use std::iter::Peekable;
+use std::{iter::Peekable, rc::Rc};
 use std::vec::IntoIter;
 
 pub struct Parser {
@@ -62,7 +62,7 @@ impl Parser {
             .context(format!("Expect ')' after {} name.", kind))?;
         self.consume(LeftBrace)
             .context(format!("Expect 'LeftBrace' before {} body.", kind))?;
-        let body = Box::new(self.block_stmt()?);
+        let body = Rc::new(self.block_stmt()?);
         Ok(Stmt::FunDecl(FunDecl { name, params, body }))
     }
 

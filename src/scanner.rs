@@ -22,6 +22,7 @@ pub enum TokenType {
     StarEqual,
     QUESTION,
     COLON,
+    Exponent,
 
     // One or two character tokens.
     BANG,
@@ -119,6 +120,7 @@ impl<'a> Scanner<'a> {
                 ';' => self.add_token(SEMICOLON),
                 '*' => self.add_token_if_match('=', StarEqual, STAR),
                 '?' => self.add_token(QUESTION),
+                '^' => self.add_token(Exponent),
                 ':' => self.add_token(COLON),
                 '!' => self.add_token_if_match('=', BangEqual, BANG),
                 '=' => self.add_token_if_match('=', EqualEqual, EQUAL),

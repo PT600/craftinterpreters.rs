@@ -11,6 +11,7 @@ pub struct Env {
     pub returns: Option<Value>,
     pub enclosing: Option<Rc<RefCell<Env>>>,
     pub is_call: bool,
+    pub level: u8,
 }
 
 // pub enum BlockState {
@@ -35,6 +36,7 @@ impl Env {
             returns: None,
             enclosing: Some(enclosing.clone()),
             is_call,
+            level: enclosing.borrow().level + 1,
         }
     }
 
@@ -59,10 +61,10 @@ impl Env {
         }
     }
 
-    pub fn assign(&mut self, name: &SmolStr, v: Value) -> Result<()> {
+    pub fn assign(&mut self, name: &SmolStr, v: Value) -> Result<u8> {
         if self.values.contains_key(name) {
             self.values.insert(name.clone(), v);
-            Ok(())
+            Ok(self.level)
         } else if let Some(enclosing) = &mut self.enclosing {
             enclosing.borrow_mut().assign(name, v)
         } else {
@@ -106,4 +108,5 @@ impl Env {
     pub fn returned(&self) -> Value {
         self.returns.clone().unwrap_or(Value::Nil)
     }
+
 }

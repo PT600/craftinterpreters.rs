@@ -76,7 +76,7 @@ pub enum Stmt {
 pub struct FunDecl {
     pub name: SmolStr,
     pub params: Vec<SmolStr>,
-    pub body: Box<Stmt>,
+    pub body: Rc<Stmt>,
 }
 #[derive(Debug, PartialEq, Clone)]
 pub struct IfStmt {

@@ -1,10 +1,13 @@
 use crate::{ast::*, enviorment::Env};
-use std::{cell::RefCell, fmt::{self, Display}, rc::{Rc, Weak}};
+use std::{
+    cell::RefCell,
+    fmt::{self, Display},
+    rc::Rc,
+};
 
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use fmt::Debug;
 use smol_str::SmolStr;
-use slotmap::{new_key_type};
 
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -12,37 +15,14 @@ pub enum Value {
     Num(f64),
     Nil,
     String(String),
-    Fun(Rc<FunKind>),
+    NativeFun(Rc<NativeFun>),
+    LoxFun(FunId, SmolStr),
     // Object(Object),
-}
-#[derive(Debug)]
-pub enum FunKind {
-    Native(NativeFun),
-    Lox(LoxFun)
-}
-
-use FunKind::*;
-impl FunKind {
-    pub fn arity(&self) -> usize {
-        match self {
-            Native(fun) => fun.arity as usize,
-            Lox(fun) => fun.fun.params.len(),
-        }
-    }
-
-}
-impl Display for FunKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Native(fun) => write!(f, "Native({})", fun.name),
-            Lox(fun) => write!(f, "LoxFun({})", fun.fun.name)
-        }
-    }
 }
 
 pub struct NativeFun {
     pub name: SmolStr,
-    pub arity: u8,
+    pub arity: usize,
     pub callable: fn(&[Value]) -> Result<Value>,
 }
 
@@ -52,17 +32,17 @@ impl Debug for NativeFun {
     }
 }
 
-new_key_type! {
-    pub struct EnvKey;
-}
+pub type FunId = u8;
 pub struct LoxFun {
-    pub closure: Weak<RefCell<Env>>,
-    pub fun: FunDecl,
+    pub id: FunId,
+    pub closure: Rc<RefCell<Env>>,
+    pub decl: FunDecl,
+    pub ref_level: u8,
 }
 // prevent recursive loop
 impl Debug for LoxFun {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "fun: {:?}", self.fun)
+        write!(f, "fun: {:?}", self.decl)
     }
 }
 
@@ -70,10 +50,11 @@ impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Value::Boolean(b) => write!(f, "{}", b),
-            Value::Num(num) => write!(f, "{}",  num),
+            Value::Num(num) => write!(f, "{}", num),
             Value::Nil => write!(f, "nil"),
             Value::String(content) => write!(f, "{}", content),
-            Value::Fun(fun) => write!(f, "({})", fun),
+            Value::NativeFun(fun) => write!(f, "Native({})", fun.name),
+            Value::LoxFun(fun, name) => write!(f, "Native({})", name),
         }
     }
 }
@@ -84,6 +65,13 @@ impl Value {
             Value::Nil => false,
             Value::Boolean(b) => *b,
             _ => true,
+        }
+    }
+
+    pub fn is_fun(&self) -> bool {
+        match self {
+            Value::NativeFun(_) | Value::LoxFun(_, _) => true,
+            _ => false,
         }
     }
 
@@ -102,6 +90,5 @@ impl Value {
             (Value::Nil, Value::Nil) => true,
             (_, _) => false,
         }
-    } 
+    }
 }
-
