@@ -1,4 +1,5 @@
 use super::chunk::*;
+use super::value::Value;
 use crate::scanner::{
     Scanner, Token,
     TokenType::{self, *},
@@ -52,28 +53,27 @@ enum Precedence {
 
 pub struct Compiler {
     parser: Parser,
-    pub chunk: Chunk,
 }
 
 impl Compiler {
-    pub fn compile(source: &str) -> Self {
+    pub fn compile0(source: &str) -> Result<Chunk> {
         let parser = Parser::new(source);
-        let chunk = Chunk::default();
-        let mut compiler = Compiler {parser, chunk};
-        compiler.parse_precedence(Precedence::Start);
-        compiler
+        let mut compiler = Compiler { parser };
+        let mut chunk = Chunk::default();
+        compiler.parse_precedence(Precedence::Start, &mut chunk)?;
+        Ok(chunk)
     }
 
-    pub fn parse_precedence(&mut self, precedence: Precedence) -> Result<()> {
+    pub fn parse_precedence(&mut self, precedence: Precedence, chunk: &mut Chunk) -> Result<()> {
         if let Some(token) = self.parser.next() {
-            self.unary(token)?;
+            self.unary(token, chunk)?;
             loop {
                 let next_precedence = self.next_precedence();
                 if precedence >= next_precedence {
                     break;
                 }
                 let token = self.parser.next().unwrap();
-                self.binary(token, next_precedence)?;
+                self.binary(token, next_precedence, chunk)?;
             }
         }
         Ok(())
@@ -90,46 +90,74 @@ impl Compiler {
             .unwrap_or(Precedence::Start)
     }
 
-    fn unary(&mut self, token: Token) -> Result<()> {
-        match token.ttype {
+    fn unary(&mut self, token: Token, chunk: &mut Chunk) -> Result<()> {
+        let line = token.line;
+        match &token.ttype {
+            NIL => {
+                chunk.write(OpCode::Nil, line);
+            }
+            TRUE => {
+                chunk.write(OpCode::True, line);
+            }
+            FALSE => {
+                chunk.write(OpCode::False, line);
+            }
+            BANG => chunk.write(OpCode::Not, line),
             NUMBER(num) => {
-                self.chunk.write_const(num, token.line);
+                chunk.write_const(Value::Number(*num), line);
+            }
+            STRING(str) => {
+                chunk.write_const(Value::Str(str.clone()), line);
             }
             LeftParen => {
-                self.parse_precedence(Precedence::Start);
+                self.parse_precedence(Precedence::Start, chunk)?;
                 self.parser
                     .consume(RightParen)
                     .context("Expect ')' after '(' in line {}")?;
             }
             MINUS => {
-                self.parse_precedence(Precedence::Unary);
-                self.emit_byte(OpCode::Negate, token.line);
+                self.parse_precedence(Precedence::Unary, chunk)?;
+                chunk.write(OpCode::Negate, line);
             }
-            _ => return bail!("unsupport unary {:?}", token.ttype),
+            _ => bail!("unsupport unary {:?}", token.ttype),
         }
         Ok(())
     }
 
-    fn binary(&mut self, token: Token, precedence: Precedence) -> Result<()> {
-        self.parse_precedence(precedence);
-        let line = token.line;
-        match &token.ttype {
-            PLUS => self.emit_byte(OpCode::Add, line),
-            MINUS => self.emit_byte(OpCode::Substract, line),
-            STAR => self.emit_byte(OpCode::Multiply, line),
-            SLASH => self.emit_byte(OpCode::Divide, line),
-            _ => return bail!("unsupport binary {:?}", token.ttype),
-        }
+    fn binary(&mut self, token: Token, precedence: Precedence, chunk: &mut Chunk) -> Result<()> {
+        println!("binary: {:?}", token);
+        self.parse_precedence(precedence, chunk);
+        let code = match &token.ttype {
+            PLUS => OpCode::Add,
+            MINUS => OpCode::Substract,
+            STAR => OpCode::Multiply,
+            SLASH => OpCode::Divide,
+            _ => bail!("unsupport binary {:?}", token.ttype),
+        };
+        chunk.write(code, token.line);
         Ok(())
-    }
-
-    fn emit_byte(&mut self, code: OpCode, line: usize) {
-        self.chunk.write(code, line)
     }
 }
 
-#[test]
-fn test(){
-  let compiler = Compiler::compile("-1 - 1 + 4");
-  println!("{:?}", compiler.chunk.codes)
+#[cfg(test)]
+mod tests {
+
+    use super::OpCode::*;
+    use super::*;
+
+    fn compile_assert(source: &str, codes: Vec<u8>) {
+        let chunk = Compiler::compile0(source).unwrap();
+        assert_eq!(chunk.codes, codes);
+    }
+    #[test]
+    fn unary() {
+        compile_assert("1", vec![Const as u8, 0u8]);
+
+        compile_assert("-1", vec![Const as u8, 0u8, Negate as u8]);
+    }
+
+    #[test]
+    fn binary() {
+        compile_assert("1 + 1", vec![Const as u8, 0, Const as u8, 1, Add as u8]);
+    }
 }

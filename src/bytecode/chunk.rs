@@ -1,12 +1,17 @@
 use std::{array::IntoIter, iter::Peekable, usize};
 use OpCode::*;
+use super::value::Value;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
 #[derive(Debug, Clone, EnumIter)]
 #[repr(u8)]
 pub enum OpCode {
+    Nil,
+    True,
+    False,
     Const,
+    Not,
     Negate,
     Add,
     Substract,
@@ -21,11 +26,6 @@ impl OpCode {
     }
 }
 
-pub type Value = f64;
-
-pub struct Values {
-    pub values: Vec<Value>,
-}
 #[derive(Default)]
 pub struct Chunk {
     pub codes: Vec<u8>,
@@ -52,7 +52,7 @@ impl Chunk {
     }
 
     pub fn read_const(&self, idx: usize) -> Value {
-        self.consts[idx]
+        self.consts[idx].clone()
     }
 
     pub fn disassemble(&self, name: &str) {
@@ -83,7 +83,7 @@ impl Chunk {
 fn test() {
     println!("{}", OpCode::Negate as u8);
     let mut chunk: Chunk = Default::default();
-    let val = chunk.add_const(1.2);
+    let val = chunk.add_const(Value::Number(1.2));
     chunk.write(Const, 123);
     chunk.write(Negate, 123);
     chunk.write(Return, 123);

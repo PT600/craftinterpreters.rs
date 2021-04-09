@@ -1,27 +1,33 @@
 use std::usize;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 
-use super::chunk::{
-    Chunk,
-    OpCode::{self, *},
-    Value,
-};
 use super::compiler::*;
+use super::value::Value;
+use super::{
+    chunk::{
+        Chunk,
+        OpCode::{self, *},
+    },
+};
 
 const STACK_MAX: usize = 256;
 
-#[derive(Default)]
 struct Vm {
     ip: usize,
-    stack: [Value; 32],
-    stack_top: usize,
+    stack: Vec<Value>,
 }
 
 impl Vm {
+    fn new() -> Self {
+        Vm {
+            ip: 0,
+            stack: vec![],
+        }
+    }
     fn run(&mut self, chunk: &Chunk) -> Result<()> {
         while let Some(code) = self.read_byte(chunk) {
-          println!("code: {:?}", code);
+            println!("code: {:?}", code);
             self.step(code, chunk)?
         }
         Ok(())
@@ -29,48 +35,64 @@ impl Vm {
 
     fn step(&mut self, code: OpCode, chunk: &Chunk) -> Result<()> {
         match code {
+            Nil => self.push(Value::Nil),
+            True => self.push(Value::Boolean(true)),
+            False => self.push(Value::Boolean(false)),
+            Not => {
+                let value = self.pop()?.as_bool()?;
+                self.push(Value::Boolean(!value))
+            }
             Return => {
-                println!("{}", self.pop());
+                println!("{:?}", self.pop());
             }
             Const => {
-              let idx = self.read_byte(chunk).context("missing byte")? as usize;
-              let c = chunk.read_const(idx);
-              self.push(c);
+                let idx = self.read_byte(chunk).context("missing byte")? as usize;
+                let c = chunk.read_const(idx);
+                self.push(c);
             }
             Negate => {
-                let result = -self.pop();
-                self.push(result)
+                let result = self.pop_num()?;
+                self.push_num(-result)
             }
             Add => {
-              let right = self.pop();
-              let left = self.pop();
-              self.push(left + right)
+                match self.peek(){
+                    Some(Value::Number(_)) => {
+                        let right = self.pop_num()?;
+                        let left = self.pop_num()?;
+                        self.push_num(left + right)
+                    }
+                    Some(Value::Str(_)) => {
+                        let right = self.pop()?.as_str()?;
+                        let left = self.pop()?.as_str()?;
+                        self.push(Value::Str(format!("{}{}", left, right)));
+                    }
+                    v @ _ => bail!("unsupport add for value: {:?}", v)
+                }
             }
             Substract => {
-              let right = self.pop();
-              let left = self.pop();
-              self.push(left - right)
+                let right = self.pop_num()?;
+                let left = self.pop_num()?;
+                self.push_num(left - right)
             }
             Multiply => {
-              let right = self.pop();
-              let left = self.pop();
-              self.push(left * right)
+                let right = self.pop_num()?;
+                let left = self.pop_num()?;
+                self.push_num(left * right)
             }
             Divide => {
-              let right = self.pop();
-              let left = self.pop();
-              self.push(left / right)
-
+                let right = self.pop_num()?;
+                let left = self.pop_num()?;
+                self.push_num(left / right)
             }
         }
         Ok(())
     }
 
-    fn read_const(&mut self, chunk: &Chunk) -> Value {
+    fn read_const(&mut self, chunk: Chunk) -> Value {
         assert!(self.ip < chunk.codes.len(), "array out of bound!");
         let idx = chunk.codes[self.ip];
         self.ip += 1;
-        chunk.consts[idx as usize]
+        chunk.consts[idx as usize].clone()
     }
 
     fn read_byte(&mut self, chunk: &Chunk) -> Option<OpCode> {
@@ -84,27 +106,56 @@ impl Vm {
     }
 
     fn push(&mut self, value: Value) {
-        self.stack[self.stack_top] = value;
-        self.stack_top += 1;
+        self.stack.push(value)
     }
 
-    fn pop(&mut self) -> Value {
-        self.stack_top -= 1;
-        self.stack[self.stack_top]
+    fn push_num(&mut self, num: f64) {
+        self.push(Value::Number(num))
+    }
+
+    fn pop(&mut self) -> Result<Value> {
+        self.stack.pop().context("emtpy while pop!")
+    }
+
+    fn peek(&self) -> Option<&Value> {
+        self.stack.last()
+    }
+
+    fn pop_num(&mut self) -> Result<f64> {
+        self.pop()?.as_num()
     }
 
     fn debug(&self) {
-        for idx in 0..self.stack_top {
-            print!("[{}]", self.stack[idx]);
+        for v in &self.stack{
+            print!("[{:?}]", v);
         }
     }
 }
 
+#[cfg(test)] 
+mod tests{
+    use super::*;
 
-#[test]
-fn test(){
-  let compiler = Compiler::compile("1+1 -2*3");
-  let mut vm = Vm::default();
-  vm.run(&compiler.chunk);
-  println!("{:?}", vm.stack);
+    fn assert_eq(source: &str, value: Value) {
+        let chunk = Compiler::compile0(source).unwrap();
+        let mut vm = Vm::new();
+        let result = vm.run(&chunk);
+        println!("result {:?}, stack: {:?}", result, vm.stack);
+        match result {
+            Ok(()) => assert!(matches!(vm.stack.pop(), Some(value))),
+            Err(err) => {
+                println!("error, {:?}", err);
+                assert!(false, "err!");
+            }
+        }
+    }
+
+    #[test]
+    fn test() {
+        assert_eq("1+1 -2*3", Value::Number(-4.0));
+    }
+    #[test]
+    fn add_str(){
+        assert_eq("\"abc\" + \"efg\"", Value::Str("abcefg".into()));
+    }
 }
