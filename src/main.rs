@@ -11,7 +11,6 @@ mod bytecode;
 use anyhow::Result;
 use std::process::exit;
 use std::env;
-
 fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
     if args.len() > 2 {

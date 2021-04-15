@@ -1,10 +1,8 @@
-use std::{array::IntoIter, iter::Peekable, usize};
-use OpCode::*;
 use super::value::Value;
-use strum::IntoEnumIterator;
-use strum_macros::EnumIter;
+use num;
+use num_derive::FromPrimitive;
 
-#[derive(Debug, Clone, EnumIter)]
+#[derive(Debug, Clone, FromPrimitive)]
 #[repr(u8)]
 pub enum OpCode {
     Nil,
@@ -22,7 +20,7 @@ pub enum OpCode {
 
 impl OpCode {
     pub fn from_u8(val: u8) -> Option<Self> {
-        OpCode::iter().find(|code| code.clone() as u8 == val)
+        num::FromPrimitive::from_u8(val)
     }
 }
 
@@ -79,12 +77,19 @@ impl Chunk {
     //     idx + 1
     // }
 }
-#[test]
-fn test() {
-    println!("{}", OpCode::Negate as u8);
-    let mut chunk: Chunk = Default::default();
-    let val = chunk.add_const(Value::Number(1.2));
-    chunk.write(Const, 123);
-    chunk.write(Negate, 123);
-    chunk.write(Return, 123);
+
+#[cfg(test)]
+mod tests {
+    use super::OpCode::*;
+    use super::*;
+
+    #[test]
+    fn test() {
+        println!("{}", Negate as u8);
+        let mut chunk: Chunk = Default::default();
+        let val = chunk.add_const(Value::Number(1.2));
+        chunk.write(Const, 123);
+        chunk.write(Negate, 123);
+        chunk.write(Return, 123);
+    }
 }

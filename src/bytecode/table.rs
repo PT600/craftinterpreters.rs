@@ -1,0 +1,142 @@
+use std::mem;
+use super::value::Value;
+use super::object::ObjString;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Entry {
+    key: *const ObjString,
+    value: Value,
+}
+#[derive(Default, Debug)]
+pub struct Table {
+    tombstones: Vec<bool>,
+    entries: Vec<Option<Entry>>,
+    count: usize,
+    mask: usize,
+}
+
+enum Search {
+    Empty(usize),
+    Exists(usize),
+}
+
+impl Table {
+    pub const MAX_LOAD: f32 = 0.75;
+    pub fn new() -> Self {
+        let capacity = 8;
+        Self {
+            entries: vec![None; capacity],
+            count: 0,
+            tombstones: vec![false; capacity],
+            mask: capacity - 1,
+        }
+    }
+
+    fn search(&self, key: &ObjString) -> Search {
+        let mut index = key.hash & self.mask;
+        let mut tombstone = None;
+        loop {
+            match &self.entries[index] {
+                None => {
+                    if !self.tombstones[index] {
+                        let index = tombstone.unwrap_or(index);
+                        return Search::Empty(index);
+                    } else if tombstone == None {
+                        tombstone = Some(index);
+                    }
+                }
+                Some(entry) => {
+                    if entry.key == key {
+                        return Search::Exists(index);
+                    }
+                }
+            }
+            index = index.wrapping_add(1) & self.mask;
+        }
+    }
+
+    pub fn get<'a>(&'a self, key: &ObjString) -> Option<&'a Value> {
+        let mut index = key.hash & self.mask;
+        loop {
+            match &self.entries[index] {
+                None if !self.tombstones[index] => return None,
+                Some(entry) if entry.key == key => return Some(&entry.value),
+                _ => {}
+            }
+            index = index.wrapping_add(1) & self.mask;
+        }
+    }
+
+    pub fn set(&mut self, key: &ObjString, value: Value) -> bool {
+        if (self.count + 1) as f32 > (self.entries.capacity() as f32) * Self::MAX_LOAD {
+            self.adjust_capacity();
+        }
+        match self.search(key) {
+            Search::Empty(idx) => {
+                self.entries[idx].replace(Entry { key, value });
+                if !self.tombstones[idx] {
+                    self.count += 1;
+                }
+                true
+            }
+            Search::Exists(idx) => {
+                self.entries[idx].replace(Entry { key, value });
+                false
+            }
+        }
+    }
+
+    pub fn delete(&mut self, key: &ObjString) {
+        if let Search::Exists(idx) = self.search(key) {
+            self.tombstones[idx] = true;
+            let _ = mem::replace(&mut self.entries[idx], None);
+        }
+    }
+
+    pub fn adjust_capacity(&mut self) {
+        self.entries.reserve_exact(self.entries.capacity());
+        let _ = mem::replace(&mut self.tombstones, vec![false; self.entries.capacity()]);
+    }
+
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test() {
+        let mut table = Table::new();
+        let a = ObjString::new("a");
+        let b = ObjString::new("b");
+        let c = ObjString::new("c");
+        table.set(&a, Value::Boolean(true));
+        table.set(&b, Value::Number(1.0));
+        table.set(&c, Value::Nil);
+        assert_eq!(table.count, 3);
+        table.delete(&a);
+        assert!(table.get(&a).is_none());
+        table.set(&a, Value::Boolean(false));
+        assert!(table.get(&a).is_some());
+    }
+
+    #[test]
+    fn cmp_by_ref() {
+        let mut table = Table::new();
+        let a1 = ObjString::new("a");
+        let a2 = ObjString::new("a");
+        table.set(&a1, Value::Number(1.0));
+        table.set(&a2, Value::Number(2.0));
+        assert_eq!(table.count, 2);
+        assert_eq!(table.get(&a1), Some(&Value::Number(1.0)));
+        assert_eq!(table.get(&a2), Some(&Value::Number(2.0)));
+    }
+
+    #[test]
+    fn cmp() {
+        let a = "a".to_string();
+        let b = "a".to_string();
+        assert_eq!(a, b);
+        assert!(!std::ptr::eq(&a, &b));
+    }
+}

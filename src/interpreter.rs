@@ -290,9 +290,9 @@ impl Interpreter {
                         self.execute_stmt(&*fun.decl.body.clone(), &env)?;
                         let result = env.borrow().returned();
                         Ok(result)
-                    },
+                    }
                     _ => bail!("{} is not a fun!", callee),
-                }
+                };
             }
         };
         Ok(value)

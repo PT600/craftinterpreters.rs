@@ -1,10 +1,15 @@
 use anyhow::{Result, bail};
-#[derive(Debug, Clone)]
+
+use super::object::{ObjString, Object};
+
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Value {
   Nil,
   Number(f64),
   Boolean(bool),
-  Str(String),
+  Object(*const Object),
+  ObjString(*const ObjString),
 }
 
 impl Value {
@@ -21,9 +26,9 @@ impl Value {
       _ => bail!("can't convert {:?} to bool!", self)
     }
   }
-  pub fn as_str(&self) -> Result<String> {
+  pub fn as_str(&self) -> Result<*const ObjString> {
     match self {
-      Value::Str(str) => Ok(str.clone()),
+      Value::ObjString(obj) => Ok(*obj),
       _ => bail!("can't convert {:?} to str!", self)
     }
   }

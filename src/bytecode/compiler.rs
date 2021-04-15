@@ -1,5 +1,7 @@
-use super::chunk::*;
+use super::{chunk::*, strings::Strings};
 use super::value::Value;
+use super::table::Table;
+
 use crate::scanner::{
     Scanner, Token,
     TokenType::{self, *},
@@ -52,35 +54,45 @@ enum Precedence {
 }
 
 pub struct Compiler {
-    parser: Parser,
+    pub strings: Strings,
+}
+
+pub fn compile(source: &str) -> Result<Chunk> {
+    let mut compiler = Compiler::new();
+    compiler.compile(source)
 }
 
 impl Compiler {
-    pub fn compile0(source: &str) -> Result<Chunk> {
-        let parser = Parser::new(source);
-        let mut compiler = Compiler { parser };
+
+    pub fn new() -> Self{
+        let strings = Strings::new();
+        Compiler { strings }
+    }
+
+    pub fn compile(&mut self, source: &str) -> Result<Chunk> {
+        let mut parser = Parser::new(source);
         let mut chunk = Chunk::default();
-        compiler.parse_precedence(Precedence::Start, &mut chunk)?;
+        self.parse_precedence(Precedence::Start, &mut chunk, &mut parser)?;
         Ok(chunk)
     }
 
-    pub fn parse_precedence(&mut self, precedence: Precedence, chunk: &mut Chunk) -> Result<()> {
-        if let Some(token) = self.parser.next() {
-            self.unary(token, chunk)?;
+    pub fn parse_precedence(&mut self, precedence: Precedence, chunk: &mut Chunk, parser: &mut Parser) -> Result<()> {
+        if let Some(token) = parser.next() {
+            self.unary(token, chunk, parser)?;
             loop {
-                let next_precedence = self.next_precedence();
+                let next_precedence = self.next_precedence(parser);
                 if precedence >= next_precedence {
                     break;
                 }
-                let token = self.parser.next().unwrap();
-                self.binary(token, next_precedence, chunk)?;
+                let token = parser.next().unwrap();
+                self.binary(token, next_precedence, chunk, parser)?;
             }
         }
         Ok(())
     }
 
-    fn next_precedence(&mut self) -> Precedence {
-        self.parser
+    fn next_precedence(&mut self, parser: &mut Parser) -> Precedence {
+        parser
             .peek()
             .map(|t| match t.ttype {
                 PLUS | MINUS => Precedence::Term,
@@ -90,7 +102,7 @@ impl Compiler {
             .unwrap_or(Precedence::Start)
     }
 
-    fn unary(&mut self, token: Token, chunk: &mut Chunk) -> Result<()> {
+    fn unary(&mut self, token: Token, chunk: &mut Chunk, parser: &mut Parser) -> Result<()> {
         let line = token.line;
         match &token.ttype {
             NIL => {
@@ -107,16 +119,17 @@ impl Compiler {
                 chunk.write_const(Value::Number(*num), line);
             }
             STRING(str) => {
-                chunk.write_const(Value::Str(str.clone()), line);
+                let s = self.strings.add(str);
+                chunk.write_const(Value::ObjString(s), line);
             }
             LeftParen => {
-                self.parse_precedence(Precedence::Start, chunk)?;
-                self.parser
+                self.parse_precedence(Precedence::Start, chunk, parser)?;
+                parser
                     .consume(RightParen)
                     .context("Expect ')' after '(' in line {}")?;
             }
             MINUS => {
-                self.parse_precedence(Precedence::Unary, chunk)?;
+                self.parse_precedence(Precedence::Unary, chunk, parser)?;
                 chunk.write(OpCode::Negate, line);
             }
             _ => bail!("unsupport unary {:?}", token.ttype),
@@ -124,9 +137,8 @@ impl Compiler {
         Ok(())
     }
 
-    fn binary(&mut self, token: Token, precedence: Precedence, chunk: &mut Chunk) -> Result<()> {
-        println!("binary: {:?}", token);
-        self.parse_precedence(precedence, chunk);
+    fn binary(&mut self, token: Token, precedence: Precedence, chunk: &mut Chunk, parser: &mut Parser) -> Result<()> {
+        self.parse_precedence(precedence, chunk, parser);
         let code = match &token.ttype {
             PLUS => OpCode::Add,
             MINUS => OpCode::Substract,
@@ -141,12 +153,11 @@ impl Compiler {
 
 #[cfg(test)]
 mod tests {
-
     use super::OpCode::*;
     use super::*;
 
     fn compile_assert(source: &str, codes: Vec<u8>) {
-        let chunk = Compiler::compile0(source).unwrap();
+        let chunk = compile(source).unwrap();
         assert_eq!(chunk.codes, codes);
     }
     #[test]

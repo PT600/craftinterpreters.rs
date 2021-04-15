@@ -159,7 +159,7 @@ mod tests {
         let result = parser.parse();
         match result {
             Ok(ex) => assert_eq!(ex.format(), expr),
-            Err(e) => assert!(false, format!("{:?}", e)),
+            Err(e) => panic!("{:?}", e),
         }
     }
     #[test]

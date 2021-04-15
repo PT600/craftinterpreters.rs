@@ -8,5 +8,8 @@ edition = "2018"
 anyhow = "1.0.34"
 slotmap = "1.0"
 smol_str = "0.1.17"
-strum = { version = "0.20", features = ["derive"] }
-strum_macros = "0.20"
+# strum = { version = "0.20", features = ["derive"] }
+# strum_macros = "0.20"
+num = "0.4"
+num-traits = "0.2"
+num-derive = "0.3"

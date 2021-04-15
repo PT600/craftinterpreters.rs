@@ -2,7 +2,8 @@ use std::usize;
 
 use anyhow::{bail, Context, Result};
 
-use super::compiler::*;
+use super::{compiler, object::Object, strings::Strings};
+
 use super::value::Value;
 use super::{
     chunk::{
@@ -16,13 +17,17 @@ const STACK_MAX: usize = 256;
 struct Vm {
     ip: usize,
     stack: Vec<Value>,
+    strings: Strings,
+    objects: Option<Object>,
 }
 
 impl Vm {
-    fn new() -> Self {
+    fn new(strings: Strings) -> Self {
         Vm {
             ip: 0,
             stack: vec![],
+            strings,
+            objects: None,
         }
     }
     fn run(&mut self, chunk: &Chunk) -> Result<()> {
@@ -61,10 +66,12 @@ impl Vm {
                         let left = self.pop_num()?;
                         self.push_num(left + right)
                     }
-                    Some(Value::Str(_)) => {
+                    Some(Value::ObjString(_)) => {
                         let right = self.pop()?.as_str()?;
                         let left = self.pop()?.as_str()?;
-                        self.push(Value::Str(format!("{}{}", left, right)));
+                        let result = unsafe{ format!("{}{}", (*left).data, (*right).data)};
+                        let key = self.strings.add(&result);
+                        self.push(Value::ObjString(key));
                     }
                     v @ _ => bail!("unsupport add for value: {:?}", v)
                 }
@@ -134,11 +141,14 @@ impl Vm {
 
 #[cfg(test)] 
 mod tests{
+    use compiler::Compiler;
+
     use super::*;
 
     fn assert_eq(source: &str, value: Value) {
-        let chunk = Compiler::compile0(source).unwrap();
-        let mut vm = Vm::new();
+        let mut compiler = Compiler::new();
+        let chunk = compiler.compile(source).unwrap();
+        let mut vm = Vm::new(compiler.strings);
         let result = vm.run(&chunk);
         println!("result {:?}, stack: {:?}", result, vm.stack);
         match result {
@@ -154,8 +164,8 @@ mod tests{
     fn test() {
         assert_eq("1+1 -2*3", Value::Number(-4.0));
     }
-    #[test]
-    fn add_str(){
-        assert_eq("\"abc\" + \"efg\"", Value::Str("abcefg".into()));
-    }
+    // #[test]
+    // fn add_str(){
+    //     assert_eq("\"abc\" + \"efg\"", Value::Str("abcefg".into()));
+    // }
 }
