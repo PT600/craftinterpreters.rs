@@ -1,6 +1,8 @@
-use std::mem;
-use super::value::Value;
 use super::object::ObjString;
+use super::value::Value;
+use std::{mem, usize};
+
+type Key = *const ObjString;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Entry {
@@ -31,9 +33,11 @@ impl Table {
             mask: capacity - 1,
         }
     }
-
-    fn search(&self, key: &ObjString) -> Search {
-        let mut index = key.hash & self.mask;
+    fn hash(&self, key: Key) -> usize {
+        unsafe { *key }.hash & self.mask
+    }
+    fn search(&self, key: Key) -> Search {
+        let mut index = self.hash(key);
         let mut tombstone = None;
         loop {
             match &self.entries[index] {
@@ -55,8 +59,8 @@ impl Table {
         }
     }
 
-    pub fn get<'a>(&'a self, key: &ObjString) -> Option<&'a Value> {
-        let mut index = key.hash & self.mask;
+    pub fn get<'a>(&'a self, key: Key) -> Option<&'a Value> {
+        let mut index = self.hash(key);
         loop {
             match &self.entries[index] {
                 None if !self.tombstones[index] => return None,
@@ -67,7 +71,7 @@ impl Table {
         }
     }
 
-    pub fn set(&mut self, key: &ObjString, value: Value) -> bool {
+    pub fn set(&mut self, key: Key, value: Value) -> bool {
         if (self.count + 1) as f32 > (self.entries.capacity() as f32) * Self::MAX_LOAD {
             self.adjust_capacity();
         }
@@ -86,7 +90,7 @@ impl Table {
         }
     }
 
-    pub fn delete(&mut self, key: &ObjString) {
+    pub fn delete(&mut self, key: Key) {
         if let Search::Exists(idx) = self.search(key) {
             self.tombstones[idx] = true;
             let _ = mem::replace(&mut self.entries[idx], None);
@@ -97,7 +101,6 @@ impl Table {
         self.entries.reserve_exact(self.entries.capacity());
         let _ = mem::replace(&mut self.tombstones, vec![false; self.entries.capacity()]);
     }
-
 }
 
 #[cfg(test)]

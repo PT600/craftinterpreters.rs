@@ -34,11 +34,11 @@ impl Strings {
         }
     }
 
-    pub fn add(&mut self, key: &str) -> *const ObjString {
+    pub fn add(&mut self, key: String) -> *const ObjString {
         if (self.count + 1) as f32 > (self.entries.capacity() as f32) * Self::MAX_LOAD {
             self.adjust_capacity();
         }
-        let hash = ObjString::hash(key);
+        let hash = ObjString::hash(&key);
         let mut index = hash & self.mask;
         let mut tombstone = None;
         loop {
@@ -53,7 +53,7 @@ impl Strings {
                             Some(index) => index,
                         };
                         let entry = ObjString {
-                            data: key.into(),
+                            data: key,
                             hash,
                         };
                         let o = &mut self.entries[index];

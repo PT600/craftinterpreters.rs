@@ -16,6 +16,10 @@ pub enum OpCode {
     Multiply,
     Divide,
     Return,
+    Print,
+    Pop,
+    DefineGlobal,
+    GetGlobal,
 }
 
 impl OpCode {

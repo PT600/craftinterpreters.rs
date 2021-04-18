@@ -8,10 +8,12 @@ use crate::scanner::{
 };
 
 use anyhow::{bail, Context, Result};
+use smol_str::SmolStr;
 use std::{iter::Peekable, vec::IntoIter};
 
 pub struct Parser {
     it: Peekable<IntoIter<Token>>,
+    line: usize,
 }
 
 impl Parser {
@@ -19,18 +21,34 @@ impl Parser {
         let tokens = Scanner::scan(source);
         Parser {
             it: tokens.into_iter().peekable(),
+            line: 0,
         }
     }
     fn next(&mut self) -> Option<Token> {
-        self.it.next()
+        self.it.next().map(|t| {
+            self.line = t.line;
+            t
+        })
     }
     fn peek(&mut self) -> Option<&Token> {
         self.it.peek()
     }
 
+    fn check(&mut self, ttype: TokenType) -> bool {
+        self.it.peek().map_or(false, |token| matches!(&token.ttype, ttype))
+    }
+
+    fn matches(&mut self, ttype: TokenType) -> bool {
+        if self.check(ttype) {
+            self.next();
+            true
+        }else {
+            false
+        }
+    }
+
     fn consume(&mut self, target: TokenType) -> Option<Token> {
-        self.it
-            .next()
+        self.next()
             .filter(|token| matches!(&token.ttype, target))
     }
 }
@@ -55,44 +73,103 @@ enum Precedence {
 
 pub struct Compiler {
     pub strings: Strings,
-}
-
-pub fn compile(source: &str) -> Result<Chunk> {
-    let mut compiler = Compiler::new();
-    compiler.compile(source)
+    pub parser: Parser,
+    pub chunk: Chunk,
 }
 
 impl Compiler {
 
-    pub fn new() -> Self{
+    pub fn new(source: &str) -> Self{
         let strings = Strings::new();
-        Compiler { strings }
+        let parser = Parser::new(source);
+        let chunk = Chunk::default();
+        Compiler { strings, parser, chunk }
     }
 
-    pub fn compile(&mut self, source: &str) -> Result<Chunk> {
-        let mut parser = Parser::new(source);
-        let mut chunk = Chunk::default();
-        self.parse_precedence(Precedence::Start, &mut chunk, &mut parser)?;
-        Ok(chunk)
+    pub fn compile(&mut self) -> Result<()> {
+        while self.parser.peek().is_some() {
+            self.decl()?;
+        }
+        Ok(())
     }
 
-    pub fn parse_precedence(&mut self, precedence: Precedence, chunk: &mut Chunk, parser: &mut Parser) -> Result<()> {
-        if let Some(token) = parser.next() {
-            self.unary(token, chunk, parser)?;
+
+    pub fn decl(&mut self) -> Result<()> {
+        if self.parser.matches(TokenType::VAR) {
+            self.var_decl()
+        }else {
+            self.statement()
+        }
+    }
+
+    fn var_decl(&mut self) -> Result<()> {
+        if let Some(token) = self.parser.next() {
+            if let IDENTIFIER(id) =  token.ttype {
+                if self.parser.matches(TokenType::EQUAL) {
+                    self.expr();
+                }else {
+                    self.emit_byte(OpCode::Nil);
+                }
+                self.parser.consume(TokenType::SEMICOLON).context("expect ';' after expression!")?;
+                self.define_variable(OpCode::DefineGlobal, &id);
+                return Ok(())
+            }
+        }
+        bail!("expect identifier after var!")
+    }
+
+    fn define_variable(&mut self, code: OpCode, id: &SmolStr) {
+        let obj_str = self.strings.add(id.to_string());
+        self.emit_byte(code);
+        self.chunk.write_const(Value::ObjString(obj_str), self.parser.line);
+    }
+
+    fn statement(&mut self) -> Result<()> {
+        if self.parser.matches(TokenType::PRINT) {
+            self.print_stat(self.parser.line)
+        }else{
+            self.expr_stat()
+        }
+    }
+    
+    fn print_stat(&mut self, line: usize) -> Result<()>{
+        self.expr()?;
+        self.parser.consume(TokenType::SEMICOLON).context("Expect ';' after value.")?;
+        self.chunk.write(OpCode::Print, line);
+        Ok(())
+    }
+
+    fn expr_stat(&mut self) -> Result<()> {
+        self.expr()?;
+        self.parser.consume(TokenType::SEMICOLON).context("expect ';' after expr")?;
+        self.emit_byte(OpCode::Pop);
+        Ok(())
+    }
+
+    fn emit_byte(&mut self, code: OpCode) {
+        self.chunk.write(code, self.parser.line)
+    }
+    pub fn expr(&mut self) -> Result<()> {
+        self.parse_precedence(Precedence::Start)
+    }
+
+    pub fn parse_precedence(&mut self, precedence: Precedence) -> Result<()> {
+        if let Some(token) = self.parser.next() {
+            self.unary(token)?;
             loop {
-                let next_precedence = self.next_precedence(parser);
+                let next_precedence = self.next_precedence();
                 if precedence >= next_precedence {
                     break;
                 }
-                let token = parser.next().unwrap();
-                self.binary(token, next_precedence, chunk, parser)?;
+                let token = self.parser.next().unwrap();
+                self.binary(token, next_precedence)?;
             }
         }
         Ok(())
     }
 
-    fn next_precedence(&mut self, parser: &mut Parser) -> Precedence {
-        parser
+    fn next_precedence(&mut self) -> Precedence {
+        self.parser
             .peek()
             .map(|t| match t.ttype {
                 PLUS | MINUS => Precedence::Term,
@@ -102,43 +179,48 @@ impl Compiler {
             .unwrap_or(Precedence::Start)
     }
 
-    fn unary(&mut self, token: Token, chunk: &mut Chunk, parser: &mut Parser) -> Result<()> {
+    fn unary(&mut self, token: Token) -> Result<()> {
         let line = token.line;
         match &token.ttype {
             NIL => {
-                chunk.write(OpCode::Nil, line);
+                self.chunk.write(OpCode::Nil, line);
             }
             TRUE => {
-                chunk.write(OpCode::True, line);
+                self.chunk.write(OpCode::True, line);
             }
             FALSE => {
-                chunk.write(OpCode::False, line);
+                self.chunk.write(OpCode::False, line);
             }
-            BANG => chunk.write(OpCode::Not, line),
+            BANG => self.chunk.write(OpCode::Not, line),
             NUMBER(num) => {
-                chunk.write_const(Value::Number(*num), line);
+                self.chunk.write_const(Value::Number(*num), line);
             }
             STRING(str) => {
-                let s = self.strings.add(str);
-                chunk.write_const(Value::ObjString(s), line);
+                let s = self.strings.add(str.into());
+                self.chunk.write_const(Value::ObjString(s), line);
             }
+            IDENTIFIER(id) => {
+                let obj_str = self.strings.add(id.to_string());
+                self.emit_byte(OpCode::GetGlobal);
+                self.chunk.write_const(Value::ObjString(obj_str), self.parser.line);
+            },
             LeftParen => {
-                self.parse_precedence(Precedence::Start, chunk, parser)?;
-                parser
+                self.parse_precedence(Precedence::Start)?;
+                self.parser
                     .consume(RightParen)
                     .context("Expect ')' after '(' in line {}")?;
             }
             MINUS => {
-                self.parse_precedence(Precedence::Unary, chunk, parser)?;
-                chunk.write(OpCode::Negate, line);
+                self.parse_precedence(Precedence::Unary)?;
+                self.chunk.write(OpCode::Negate, line);
             }
             _ => bail!("unsupport unary {:?}", token.ttype),
         }
         Ok(())
     }
 
-    fn binary(&mut self, token: Token, precedence: Precedence, chunk: &mut Chunk, parser: &mut Parser) -> Result<()> {
-        self.parse_precedence(precedence, chunk, parser);
+    fn binary(&mut self, token: Token, precedence: Precedence) -> Result<()> {
+        self.parse_precedence(precedence)?;
         let code = match &token.ttype {
             PLUS => OpCode::Add,
             MINUS => OpCode::Substract,
@@ -146,7 +228,7 @@ impl Compiler {
             SLASH => OpCode::Divide,
             _ => bail!("unsupport binary {:?}", token.ttype),
         };
-        chunk.write(code, token.line);
+        self.chunk.write(code, token.line);
         Ok(())
     }
 }
@@ -157,8 +239,9 @@ mod tests {
     use super::*;
 
     fn compile_assert(source: &str, codes: Vec<u8>) {
-        let chunk = compile(source).unwrap();
-        assert_eq!(chunk.codes, codes);
+        let mut compiler = Compiler::new(source);
+        compiler.compile().unwrap();
+        assert_eq!(compiler.chunk.codes, codes);
     }
     #[test]
     fn unary() {
