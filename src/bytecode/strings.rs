@@ -103,14 +103,14 @@ mod tests {
     fn testt() {
         let mut strings = Strings::new();
         let key = "a";
-        strings.add(key);
-        strings.add("b");
-        strings.add("c");
+        strings.add(key.into());
+        strings.add("b".into());
+        strings.add("c".into());
         assert_eq!(strings.count, 3);
         strings.delete(key);
         assert_eq!(strings.count, 3); // tombstone
         assert!(strings.get(key).is_none());
-        strings.add(key);
+        strings.add(key.into());
         assert!(strings.get(key).is_some());
         assert_eq!(strings.count, 3);
     }
@@ -118,10 +118,10 @@ mod tests {
     #[test]
     fn add() {
         let mut strings = Strings::new();
-        let key = strings.add("a");
+        let key = strings.add("a".into());
         assert_eq!(unsafe { &(*key).data }, "a");
         let a = strings.get("a").unwrap() as *const _;
-        let key2 = strings.add("a");
+        let key2 = strings.add("a".into());
         assert!(std::ptr::eq(key, key2));
     }
 

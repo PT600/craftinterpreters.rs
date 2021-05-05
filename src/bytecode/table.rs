@@ -34,7 +34,7 @@ impl Table {
         }
     }
     fn hash(&self, key: Key) -> usize {
-        unsafe { *key }.hash & self.mask
+        unsafe { &*key }.hash & self.mask
     }
     fn search(&self, key: Key) -> Search {
         let mut index = self.hash(key);

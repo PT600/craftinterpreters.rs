@@ -118,6 +118,14 @@ impl Vm {
                     .clone();
                 self.push(val);
             }
+            SetGlobal => {
+                let name = self.read_string()?;
+                let val = self.peek().context("missing value for SetGlobal")?;
+                let val = val.clone();
+                if self.globals.set(name, val) {
+                    bail!("Undefined variable '{:?}'", unsafe {&*name})
+                }
+            }
         }
         Ok(())
     }
@@ -179,6 +187,15 @@ mod tests {
 
     use super::*;
 
+    fn run(source: &str) -> Vm {
+        let mut compiler = Compiler::new(source);
+        compiler.compile().unwrap();
+        let mut vm = Vm::new(compiler.strings, compiler.chunk);
+        let result = vm.run();
+        assert!(result.is_ok(), "error result: {:?}", result);
+        vm
+    }
+
     fn assert_eq(source: &str, value: Value) {
         let mut compiler = Compiler::new(source);
         compiler.compile().unwrap();
@@ -204,8 +221,10 @@ mod tests {
         });
         println!("{:?}", result);
     }
-    // #[test]
-    // fn add_str(){
-    //     assert_eq("\"abc\" + \"efg\"", Value::Str("abcefg".into()));
-    // }
+    #[test]
+    fn add_str(){
+        let mut vm = run("print \"abc\" + \"efg\";");
+        // let val = vm.stack.pop().unwrap();
+        // println!("{:?}", val)
+    }
 }

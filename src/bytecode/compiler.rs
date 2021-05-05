@@ -1,6 +1,6 @@
-use super::{chunk::*, strings::Strings};
-use super::value::Value;
 use super::table::Table;
+use super::value::Value;
+use super::{chunk::*, strings::Strings};
 
 use crate::scanner::{
     Scanner, Token,
@@ -34,22 +34,26 @@ impl Parser {
         self.it.peek()
     }
 
+    // fn check(&mut self, ttype: TokenType) -> bool {
+    //     self.it.peek().map_or(false, |token| matches!(&token.ttype, ttype))
+    // }
     fn check(&mut self, ttype: TokenType) -> bool {
-        self.it.peek().map_or(false, |token| matches!(&token.ttype, ttype))
+        self.it
+            .peek()
+            .map(|token| token.ttype == ttype)
+            .unwrap_or(false)
     }
-
     fn matches(&mut self, ttype: TokenType) -> bool {
         if self.check(ttype) {
             self.next();
             true
-        }else {
+        } else {
             false
         }
     }
 
     fn consume(&mut self, target: TokenType) -> Option<Token> {
-        self.next()
-            .filter(|token| matches!(&token.ttype, target))
+        self.next().filter(|token| matches!(&token.ttype, target))
     }
 }
 
@@ -78,12 +82,15 @@ pub struct Compiler {
 }
 
 impl Compiler {
-
-    pub fn new(source: &str) -> Self{
+    pub fn new(source: &str) -> Self {
         let strings = Strings::new();
         let parser = Parser::new(source);
         let chunk = Chunk::default();
-        Compiler { strings, parser, chunk }
+        Compiler {
+            strings,
+            parser,
+            chunk,
+        }
     }
 
     pub fn compile(&mut self) -> Result<()> {
@@ -93,26 +100,28 @@ impl Compiler {
         Ok(())
     }
 
-
     pub fn decl(&mut self) -> Result<()> {
         if self.parser.matches(TokenType::VAR) {
+            println!("var decl...................");
             self.var_decl()
-        }else {
+        } else {
             self.statement()
         }
     }
 
     fn var_decl(&mut self) -> Result<()> {
         if let Some(token) = self.parser.next() {
-            if let IDENTIFIER(id) =  token.ttype {
+            if let IDENTIFIER(id) = token.ttype {
                 if self.parser.matches(TokenType::EQUAL) {
-                    self.expr();
-                }else {
+                    self.parse_precedence(Precedence::AssignmentPrev);
+                } else {
                     self.emit_byte(OpCode::Nil);
                 }
-                self.parser.consume(TokenType::SEMICOLON).context("expect ';' after expression!")?;
+                self.parser
+                    .consume(TokenType::SEMICOLON)
+                    .context("expect ';' after expression!")?;
                 self.define_variable(OpCode::DefineGlobal, &id);
-                return Ok(())
+                return Ok(());
             }
         }
         bail!("expect identifier after var!")
@@ -121,27 +130,32 @@ impl Compiler {
     fn define_variable(&mut self, code: OpCode, id: &SmolStr) {
         let obj_str = self.strings.add(id.to_string());
         self.emit_byte(code);
-        self.chunk.write_const(Value::ObjString(obj_str), self.parser.line);
+        self.chunk
+            .write_const(Value::ObjString(obj_str), self.parser.line);
     }
 
     fn statement(&mut self) -> Result<()> {
         if self.parser.matches(TokenType::PRINT) {
             self.print_stat(self.parser.line)
-        }else{
+        } else {
             self.expr_stat()
         }
     }
-    
-    fn print_stat(&mut self, line: usize) -> Result<()>{
+
+    fn print_stat(&mut self, line: usize) -> Result<()> {
         self.expr()?;
-        self.parser.consume(TokenType::SEMICOLON).context("Expect ';' after value.")?;
+        self.parser
+            .consume(TokenType::SEMICOLON)
+            .context("Expect ';' after value.")?;
         self.chunk.write(OpCode::Print, line);
         Ok(())
     }
 
     fn expr_stat(&mut self) -> Result<()> {
         self.expr()?;
-        self.parser.consume(TokenType::SEMICOLON).context("expect ';' after expr")?;
+        self.parser
+            .consume(TokenType::SEMICOLON)
+            .context("expect ';' after expr")?;
         self.emit_byte(OpCode::Pop);
         Ok(())
     }
@@ -154,8 +168,9 @@ impl Compiler {
     }
 
     pub fn parse_precedence(&mut self, precedence: Precedence) -> Result<()> {
+        let can_assign = precedence <= Precedence::Assignment;
         if let Some(token) = self.parser.next() {
-            self.unary(token)?;
+            self.unary(token, can_assign)?;
             loop {
                 let next_precedence = self.next_precedence();
                 if precedence >= next_precedence {
@@ -164,6 +179,9 @@ impl Compiler {
                 let token = self.parser.next().unwrap();
                 self.binary(token, next_precedence)?;
             }
+        }
+        if can_assign && self.parser.matches(TokenType::EQUAL) {
+            bail!("Invalid assignment target!")
         }
         Ok(())
     }
@@ -179,7 +197,7 @@ impl Compiler {
             .unwrap_or(Precedence::Start)
     }
 
-    fn unary(&mut self, token: Token) -> Result<()> {
+    fn unary(&mut self, token: Token, can_assign: bool) -> Result<()> {
         let line = token.line;
         match &token.ttype {
             NIL => {
@@ -200,10 +218,16 @@ impl Compiler {
                 self.chunk.write_const(Value::ObjString(s), line);
             }
             IDENTIFIER(id) => {
+                if can_assign && self.parser.matches(TokenType::EQUAL) {
+                    self.parse_precedence(Precedence::AssignmentPrev);
+                    self.emit_byte(OpCode::SetGlobal);
+                } else {
+                    self.emit_byte(OpCode::GetGlobal);
+                }
                 let obj_str = self.strings.add(id.to_string());
-                self.emit_byte(OpCode::GetGlobal);
-                self.chunk.write_const(Value::ObjString(obj_str), self.parser.line);
-            },
+                self.chunk
+                    .write_const(Value::ObjString(obj_str), self.parser.line);
+            }
             LeftParen => {
                 self.parse_precedence(Precedence::Start)?;
                 self.parser
