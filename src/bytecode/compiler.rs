@@ -9,7 +9,7 @@ use crate::scanner::{
 
 use anyhow::{bail, Context, Result};
 use smol_str::SmolStr;
-use std::{iter::Peekable, vec::IntoIter};
+use std::{iter::Peekable, usize, vec::IntoIter};
 
 pub struct Parser {
     it: Peekable<IntoIter<Token>>,
@@ -75,10 +75,19 @@ enum Precedence {
     Call, // . ()
 }
 
+#[derive(Debug, Clone)]
+struct Local {
+    name: Option<SmolStr>,
+    depth: i32,
+}
+
 pub struct Compiler {
     pub strings: Strings,
     pub parser: Parser,
     pub chunk: Chunk,
+    pub locals: [Local; u8::MAX as usize],
+    pub local_count: usize,
+    pub scope_depth: i32,
 }
 
 impl Compiler {
@@ -90,6 +99,12 @@ impl Compiler {
             strings,
             parser,
             chunk,
+            locals: [Local {
+                name: None,
+                depth: 0,
+            }; u8::MAX as usize],
+            local_count: 0,
+            scope_depth: 0,
         }
     }
 
@@ -102,7 +117,6 @@ impl Compiler {
 
     pub fn decl(&mut self) -> Result<()> {
         if self.parser.matches(TokenType::VAR) {
-            println!("var decl...................");
             self.var_decl()
         } else {
             self.statement()
@@ -113,30 +127,54 @@ impl Compiler {
         if let Some(token) = self.parser.next() {
             if let IDENTIFIER(id) = token.ttype {
                 if self.parser.matches(TokenType::EQUAL) {
-                    self.parse_precedence(Precedence::AssignmentPrev);
+                    self.parse_precedence(Precedence::AssignmentPrev)?;
                 } else {
                     self.emit_byte(OpCode::Nil);
                 }
                 self.parser
                     .consume(TokenType::SEMICOLON)
                     .context("expect ';' after expression!")?;
-                self.define_variable(OpCode::DefineGlobal, &id);
+                self.define_variable(&id);
                 return Ok(());
             }
         }
         bail!("expect identifier after var!")
     }
 
-    fn define_variable(&mut self, code: OpCode, id: &SmolStr) {
-        let obj_str = self.strings.add(id.to_string());
-        self.emit_byte(code);
-        self.chunk
-            .write_const(Value::ObjString(obj_str), self.parser.line);
+    fn define_variable(&mut self, id: &SmolStr) -> Result<()> {
+        if self.scope_depth == 0 {
+            let obj_str = self.strings.add(id.to_string());
+            self.emit_byte(OpCode::DefineGlobal);
+            self.chunk
+                .write_const(Value::ObjString(obj_str), self.parser.line);
+        } else {
+            if self.local_count >= self.locals.len() {
+                bail!("too many locals!")
+            }
+            let mut index = self.local_count - 1;
+            while index >= 0 {
+                let local = &self.locals[index];
+                if local.depth != -1 && local.depth < self.scope_depth {
+                    break;
+                }
+                if matches!(&local.name, Some(name) if name == id) {
+                    bail!("Already variable with this name in this scope.")
+                }
+                index -= 1;
+            }
+            let local = &mut self.locals[self.local_count];
+            local.name.replace(id.clone());
+            local.depth = self.scope_depth;
+            self.local_count += 1;
+        }
+        Ok(())
     }
 
     fn statement(&mut self) -> Result<()> {
         if self.parser.matches(TokenType::PRINT) {
             self.print_stat(self.parser.line)
+        } else if self.parser.matches(TokenType::LeftBrace) {
+            self.block()
         } else {
             self.expr_stat()
         }
@@ -157,6 +195,22 @@ impl Compiler {
             .consume(TokenType::SEMICOLON)
             .context("expect ';' after expr")?;
         self.emit_byte(OpCode::Pop);
+        Ok(())
+    }
+
+    fn block(&mut self) -> Result<()> {
+        self.scope_depth += 1;
+        while !self.parser.check(TokenType::RightBrace) {
+            self.decl()?;
+        }
+        self.parser
+            .consume(TokenType::RightBrace)
+            .context("expect '}' after block")?;
+        self.scope_depth -= 1;
+        while self.local_count > 0 && self.locals[self.local_count - 1].depth > self.scope_depth {
+            self.emit_byte(OpCode::Pop);
+            self.local_count -= 1;
+        }
         Ok(())
     }
 
