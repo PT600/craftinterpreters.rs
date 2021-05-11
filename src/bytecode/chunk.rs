@@ -21,6 +21,8 @@ pub enum OpCode {
     DefineGlobal,
     GetGlobal,
     SetGlobal,
+    GetLocal,
+    SetLocal,
 }
 
 impl OpCode {
@@ -42,12 +44,18 @@ impl Chunk {
         self.lines.push(line);
     }
 
+    pub fn write_byte(&mut self, code: u8, line: usize) {
+        self.codes.push(code);
+        self.lines.push(line);
+    }
+
     pub fn write_const(&mut self, value: Value, line: usize) {
         self.write(OpCode::Const, line);
         let idx = self.add_const(value);
         self.codes.push(idx as u8);
         self.lines.push(line);
     }
+
 
     pub fn add_const(&mut self, value: Value) -> usize {
         self.consts.push(value);

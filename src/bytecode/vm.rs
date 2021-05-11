@@ -126,6 +126,15 @@ impl Vm {
                     bail!("Undefined variable '{:?}'", unsafe {&*name})
                 }
             }
+            GetLocal => {
+                let slot = self.read_byte().context("GetLocal need index")? as u8;
+                let value = self.stack.get(slot as usize).context("Can't find local")?.clone();
+                self.push(value)
+            }
+            SetLocal => {
+                let slot = self.read_byte().context("SetLocal need index")? as u8;
+                self.stack[slot as usize] = self.peek().context("Set Local need value")?.clone();
+            }
         }
         Ok(())
     }

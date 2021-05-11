@@ -170,6 +170,22 @@ impl Compiler {
         Ok(())
     }
 
+    fn resolve_local(&self, id: &SmolStr)-> Option<usize> {
+        let index = self.local_count - 1;
+        loop {
+            if index < 0 {
+                return None
+            }
+            let local = &self.locals[index];
+            if let Some(name) = &local.name {
+                if name == id  {
+                    return Some(index)
+                }
+            }
+            index -= 1
+        }
+    }
+
     fn statement(&mut self) -> Result<()> {
         if self.parser.matches(TokenType::PRINT) {
             self.print_stat(self.parser.line)
@@ -207,6 +223,7 @@ impl Compiler {
             .consume(TokenType::RightBrace)
             .context("expect '}' after block")?;
         self.scope_depth -= 1;
+        // pop locals
         while self.local_count > 0 && self.locals[self.local_count - 1].depth > self.scope_depth {
             self.emit_byte(OpCode::Pop);
             self.local_count -= 1;
@@ -272,15 +289,20 @@ impl Compiler {
                 self.chunk.write_const(Value::ObjString(s), line);
             }
             IDENTIFIER(id) => {
+                let (arg, get_op, set_op) = if let Some(arg) = self.resolve_local(id){
+                    (arg, OpCode::GetLocal, OpCode::SetLocal)
+                }else {
+                    let obj_str = self.strings.add(id.to_string());
+                    let arg = self.chunk.add_const(Value::ObjString(obj_str));
+                    (arg, OpCode::GetGlobal, OpCode::SetGlobal)
+                };
                 if can_assign && self.parser.matches(TokenType::EQUAL) {
                     self.parse_precedence(Precedence::AssignmentPrev);
-                    self.emit_byte(OpCode::SetGlobal);
+                    self.emit_byte(set_op);
                 } else {
-                    self.emit_byte(OpCode::GetGlobal);
+                    self.emit_byte(get_op);
                 }
-                let obj_str = self.strings.add(id.to_string());
-                self.chunk
-                    .write_const(Value::ObjString(obj_str), self.parser.line);
+                self.chunk.write_byte(arg as u8, line)
             }
             LeftParen => {
                 self.parse_precedence(Precedence::Start)?;
