@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use super::value::Value;
 use num;
 use num_derive::FromPrimitive;
@@ -23,6 +25,11 @@ pub enum OpCode {
     SetGlobal,
     GetLocal,
     SetLocal,
+    JumpIfFalse,
+    JumpAndFalse,
+    JumpOrTrue,
+    Jump,
+    Call,
 }
 
 impl OpCode {
@@ -31,11 +38,17 @@ impl OpCode {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug, Clone, PartialEq)]
 pub struct Chunk {
     pub codes: Vec<u8>,
     pub lines: Vec<usize>,
     pub consts: Vec<Value>,
+}
+
+impl Display for Chunk {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "codes:");
+    }
 }
 
 impl Chunk {
@@ -56,7 +69,6 @@ impl Chunk {
         self.lines.push(line);
     }
 
-
     pub fn add_const(&mut self, value: Value) -> usize {
         self.consts.push(value);
         self.consts.len() - 1
@@ -69,26 +81,33 @@ impl Chunk {
     pub fn disassemble(&self, name: &str) {
         println!("== {} ==", name);
         let mut idx = 0usize;
-        // while idx < self.codes.len() {
-        //     idx = self.disassemble_code(self.codes[idx], idx)
-        // }
+        while idx < self.codes.len() {
+            idx = self.disassemble_code(self.codes[idx], idx)
+        }
     }
 
-    // fn disassemble_code(&self, code: &OpCode, idx: usize) -> usize {
-    //     print!("{:0>4}", idx);
-    //     if idx > 0 && self.lines[idx] == self.lines[idx-1] {
-    //         print!("    | ")
-    //     } else {
-    //         print!("{:>4}", self.lines[idx])
-    //     }
-    //     match code {
-    //         Return => println!("OP_RETURN"),
-    //         Const(idx) => println!("OP_CONSTANT: {}", self.consts[*idx]),
-    //         Negate => println!("OP_Negate"),
-
-    //     }
-    //     idx + 1
-    // }
+    fn disassemble_code(&self, code: u8, idx: usize) -> usize {
+        use OpCode::*;
+        let mut idx = idx;
+        print!("{:0>4}", idx);
+        if idx > 0 && self.lines[idx] == self.lines[idx - 1] {
+            print!("    | ")
+        } else {
+            print!("{:>4}", self.lines[idx])
+        }
+        let code = OpCode::from_u8(code).unwrap();
+        match code {
+            Return => println!("OP_RETURN"),
+            Const => {
+                idx += 1;
+                let const_idx = self.codes[idx];
+                println!("OP_CONSTANT: {}", self.consts[const_idx as usize]);
+            }
+            Negate => println!("OP_Negate"),
+            _ => {}
+        }
+        idx + 1
+    }
 }
 
 #[cfg(test)]

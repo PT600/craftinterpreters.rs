@@ -1,10 +1,10 @@
-use std::{collections::HashMap, usize};
+use std::{collections::HashMap, rc::Rc, usize};
 
 use anyhow::{bail, Context, Result};
 
 use super::{
-    compiler,
-    object::{ObjString, Object},
+    compiler::{self, Compiler, Parser},
+    object::{ObjFunction, ObjString, Object},
     strings::Strings,
     table::Table,
 };
@@ -17,35 +17,104 @@ use super::value::Value;
 
 const STACK_MAX: usize = 256;
 
-struct Vm {
+struct CallFrame<'a> {
+    chunk: &'a Chunk,
     ip: usize,
+    slots: usize,
+}
+
+impl<'a> CallFrame<'a> {
+    fn read_u16(&mut self) -> u16 {
+        let hight = (self.chunk.codes[self.ip] as u16) << 8;
+        let low = self.chunk.codes[self.ip + 1] as u16;
+        self.ip += 2;
+        hight + low
+    }
+
+    fn read_const(&mut self) -> Value {
+        assert!(self.ip < self.chunk.codes.len(), "array out of bound!");
+        let idx = self.chunk.codes[self.ip];
+        self.ip += 1;
+        self.chunk.consts[idx as usize].clone()
+    }
+    
+    fn read_string(&mut self) -> Result<*const ObjString> {
+        if let Value::ObjString(id) = self.read_const() {
+            return Ok(id);
+        }
+        bail!("xx")
+    }
+
+    fn read_byte(&mut self) -> Option<OpCode> {
+        if self.ip < self.chunk.codes.len() {
+            let code = self.chunk.codes[self.ip];
+            self.ip += 1;
+            OpCode::from_u8(code)
+        } else {
+            None
+        }
+    }
+
+    fn read_index(&mut self, err: &'static str) -> Result<usize> {
+        let idx = self.read_byte().context(err)? as usize;
+        Ok(self.slots + idx)
+    }
+}
+
+#[derive(Debug)]
+struct Vm {
     stack: Vec<Value>,
     strings: Strings,
     objects: Option<Object>,
-    chunk: Chunk,
     globals: Table,
 }
 
 impl Vm {
-    fn new(strings: Strings, chunk: Chunk) -> Self {
+    fn new() -> Self {
         Vm {
-            ip: 0,
+            strings: Strings::new(),
             stack: vec![],
-            strings,
             objects: None,
-            chunk,
             globals: Table::new(),
         }
     }
-    fn run(&mut self) -> Result<()> {
-        while let Some(code) = self.read_byte() {
+
+    fn interpreter(&mut self, source: &str) -> Result<()> {
+        let mut parser = Parser::new(source);
+        let mut compiler = Compiler::new(&mut self.strings, &mut parser);
+        compiler.compile()?;
+        for c in &compiler.chunk.consts {
+            println!("c: {}", c);
+        }
+        println!("chunk: {:?}", compiler.chunk);
+        let fun = Rc::new(ObjFunction {
+            chunk: compiler.chunk,
+            name: compiler.name,
+            arity: compiler.arity,
+        });
+        self.push(Value::ObjFunction(fun.clone()));
+        let result = self.call(fun.clone(), 0);
+        if result.is_err() {
+            println!("fun: {:?}", fun);
+            println!("vm: {:?}", self);
+        }
+        result
+    }
+
+    fn call(&mut self, fun: Rc<ObjFunction>, arg_count: usize) -> Result<()> {
+        let mut frame = CallFrame {
+            chunk: &fun.chunk,
+            ip: 0,
+            slots: self.stack.len() - arg_count - 1,
+        };
+        while let Some(code) = frame.read_byte() {
             println!("code: {:?}", code);
-            self.step(code)?
+            self.run(code, &mut frame)?;
         }
         Ok(())
     }
 
-    fn step(&mut self, code: OpCode) -> Result<()> {
+    fn run(&mut self, code: OpCode, frame: &mut CallFrame) -> Result<()> {
         match code {
             Nil => self.push(Value::Nil),
             True => self.push(Value::Boolean(true)),
@@ -58,8 +127,7 @@ impl Vm {
                 println!("{:?}", self.pop());
             }
             Const => {
-                let idx = self.read_byte().context("missing byte")? as usize;
-                let c = self.chunk.read_const(idx);
+                let c = frame.read_const();
                 self.push(c);
             }
             Negate => {
@@ -98,19 +166,26 @@ impl Vm {
             }
             Print => {
                 let val = self.pop()?;
-                println!("{:?}", val)
+                match val {
+                    Value::ObjString(key) => {
+                        println!("{:?}", unsafe { &*key })
+                    }
+                    _ => {
+                        println!("{:?}", val)
+                    }
+                }
             }
             Pop => {
                 self.pop()?;
             }
             DefineGlobal => {
-                let name = self.read_string()?;
+                let name = frame.read_string()?;
                 let val = self.pop()?;
                 self.globals.set(name, val);
-                self.pop();
+                self.pop()?;
             }
             GetGlobal => {
-                let name = self.read_string()?;
+                let name = frame.read_string()?;
                 let val = self
                     .globals
                     .get(name)
@@ -119,47 +194,62 @@ impl Vm {
                 self.push(val);
             }
             SetGlobal => {
-                let name = self.read_string()?;
-                let val = self.peek().context("missing value for SetGlobal")?;
-                let val = val.clone();
+                let name = frame.read_string()?;
+                let val = self.peek().context("missing value for SetGlobal")?.clone();
                 if self.globals.set(name, val) {
-                    bail!("Undefined variable '{:?}'", unsafe {&*name})
+                    bail!("Undefined variable '{:?}'", unsafe { &*name })
                 }
             }
             GetLocal => {
-                let slot = self.read_byte().context("GetLocal need index")? as u8;
-                let value = self.stack.get(slot as usize).context("Can't find local")?.clone();
+                let slot = frame.read_index("GetLocal need index")?;
+                let value = self.stack.get(slot).context("Can't find local")?.clone();
                 self.push(value)
             }
             SetLocal => {
-                let slot = self.read_byte().context("SetLocal need index")? as u8;
-                self.stack[slot as usize] = self.peek().context("Set Local need value")?.clone();
+                let slot = frame.read_index("SetLocal need index")?;
+                self.stack[slot] = self.peek().context("Set Local need value")?.clone();
+            }
+            JumpIfFalse => {
+                let offset = frame.read_u16();
+                let condition = self.pop()?;
+                if condition.is_false() {
+                    frame.ip += offset as usize
+                }
+            }
+            JumpAndFalse => {
+                let offset = frame.read_u16();
+                let condition = self.peek().context("JumpAndFalse need value")?;
+                if condition.is_false() {
+                    frame.ip += offset as usize
+                }
+            }
+            JumpOrTrue => {
+                let offset = frame.read_u16();
+                let condition = self.peek().context("JumpOrTrue need value")?;
+                if !condition.is_false() {
+                    frame.ip += offset as usize
+                }
+            }
+            Jump => {
+                let offset = frame.read_u16();
+                frame.ip += offset as usize
+            }
+            Call => {
+                let arg_count = frame.read_byte().context("requrie arg count")? as usize;
+                let callee = self
+                    .peek_num(arg_count)
+                    .context("need callee value")?
+                    .clone();
+                self.call_value(&callee, arg_count)?;
             }
         }
         Ok(())
     }
 
-    fn read_const(&mut self) -> Value {
-        assert!(self.ip < self.chunk.codes.len(), "array out of bound!");
-        let idx = self.chunk.codes[self.ip];
-        self.ip += 1;
-        self.chunk.consts[idx as usize].clone()
-    }
-
-    fn read_string(&mut self) -> Result<*const ObjString> {
-        if let Value::ObjString(id) = self.read_const() {
-            return Ok(id);
-        }
-        bail!("xx")
-    }
-
-    fn read_byte(&mut self) -> Option<OpCode> {
-        if self.ip < self.chunk.codes.len() {
-            let code = self.chunk.codes[self.ip];
-            self.ip += 1;
-            OpCode::from_u8(code)
-        } else {
-            None
+    fn call_value(&mut self, callee: &Value, arg_count: usize) -> Result<()> {
+        match callee {
+            Value::ObjFunction(fun) => self.call(fun.clone(), arg_count),
+            _ => bail!("Can only call functions and classes!"),
         }
     }
 
@@ -179,6 +269,10 @@ impl Vm {
         self.stack.last()
     }
 
+    fn peek_num(&self, num: usize) -> Option<&Value> {
+        self.stack.get(self.stack.len() - num - 1)
+    }
+
     fn pop_num(&mut self) -> Result<f64> {
         self.pop()?.as_num()
     }
@@ -192,32 +286,19 @@ impl Vm {
 
 #[cfg(test)]
 mod tests {
-    use compiler::Compiler;
-
     use super::*;
 
     fn run(source: &str) -> Vm {
-        let mut compiler = Compiler::new(source);
-        compiler.compile().unwrap();
-        let mut vm = Vm::new(compiler.strings, compiler.chunk);
-        let result = vm.run();
+        let mut vm = Vm::new();
+        let result = vm.interpreter(source);
         assert!(result.is_ok(), "error result: {:?}", result);
+        println!("stack: {:?}", vm.stack);
         vm
     }
 
     fn assert_eq(source: &str, value: Value) {
-        let mut compiler = Compiler::new(source);
-        compiler.compile().unwrap();
-        let mut vm = Vm::new(compiler.strings, compiler.chunk);
-        let result = vm.run();
-        println!("result {:?}, stack: {:?}", result, vm.stack);
-        match result {
-            Ok(()) => assert!(matches!(vm.stack.pop(), Some(value))),
-            Err(err) => {
-                println!("error, {:?}", err);
-                assert!(false, "err!");
-            }
-        }
+        let mut vm = run(source);
+        assert!(matches!(vm.stack.pop(), Some(value)))
     }
 
     #[test]
@@ -231,8 +312,8 @@ mod tests {
         println!("{:?}", result);
     }
     #[test]
-    fn add_str(){
-        let mut vm = run("print \"abc\" + \"efg\";");
+    fn add_str() {
+        let mut vm = run("var a = \"abc\" + \"efg\";");
         // let val = vm.stack.pop().unwrap();
         // println!("{:?}", val)
     }
