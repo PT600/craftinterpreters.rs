@@ -10,7 +10,7 @@ pub enum Value {
     Number(f64),
     Boolean(bool),
     ObjString(*const ObjString),
-    ObjFunction(Rc<ObjFunction>),
+    ObjFunction(ObjFunction),
 }
 
 impl Display for Value {

@@ -3,7 +3,7 @@ use std::{collections::HashMap, rc::Rc, usize};
 use anyhow::{bail, Context, Result};
 
 use super::{
-    compiler::{self, Compiler, Parser},
+    compiler::{compile, Compiler, Parser},
     object::{ObjFunction, ObjString, Object},
     strings::Strings,
     table::Table,
@@ -80,20 +80,16 @@ impl Vm {
     }
 
     fn interpreter(&mut self, source: &str) -> Result<()> {
-        let mut parser = Parser::new(source);
-        let mut compiler = Compiler::new(&mut self.strings, &mut parser);
-        compiler.compile()?;
-        for c in &compiler.chunk.consts {
-            println!("c: {}", c);
-        }
-        println!("chunk: {:?}", compiler.chunk);
-        let fun = Rc::new(ObjFunction {
-            chunk: compiler.chunk,
-            name: compiler.name,
-            arity: compiler.arity,
-        });
-        self.push(Value::ObjFunction(fun.clone()));
-        let result = self.call(fun.clone(), 0);
+        let mut compiler = compile(source)?;
+        let func = compiler.func;
+        println!("func: {:?}", func);
+        let fun = ObjFunction {
+            chunk: func.chunk,
+            name: func.name,
+            arity: func.arity,
+        };
+        // self.push(Value::ObjFunction(fun));
+        let result = self.call(&fun, 0);
         if result.is_err() {
             println!("fun: {:?}", fun);
             println!("vm: {:?}", self);
@@ -101,7 +97,7 @@ impl Vm {
         result
     }
 
-    fn call(&mut self, fun: Rc<ObjFunction>, arg_count: usize) -> Result<()> {
+    fn call(&mut self, fun: &ObjFunction, arg_count: usize) -> Result<()> {
         let mut frame = CallFrame {
             chunk: &fun.chunk,
             ip: 0,
@@ -248,7 +244,7 @@ impl Vm {
 
     fn call_value(&mut self, callee: &Value, arg_count: usize) -> Result<()> {
         match callee {
-            Value::ObjFunction(fun) => self.call(fun.clone(), arg_count),
+            Value::ObjFunction(fun) => self.call(fun, arg_count),
             _ => bail!("Can only call functions and classes!"),
         }
     }
@@ -285,36 +281,5 @@ impl Vm {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn run(source: &str) -> Vm {
-        let mut vm = Vm::new();
-        let result = vm.interpreter(source);
-        assert!(result.is_ok(), "error result: {:?}", result);
-        println!("stack: {:?}", vm.stack);
-        vm
-    }
-
-    fn assert_eq(source: &str, value: Value) {
-        let mut vm = run(source);
-        assert!(matches!(vm.stack.pop(), Some(value)))
-    }
-
-    #[test]
-    fn test() {
-        // assert_eq("1+1 -2*3", Value::Number(-4.0));
-        let nums = vec![1, 2, 3, 1];
-        let s = &nums[1..nums.len()];
-        let result = s.iter().fold((0, 0), |(prev, prevv), item| {
-            (std::cmp::max(prevv + item, prev), prev)
-        });
-        println!("{:?}", result);
-    }
-    #[test]
-    fn add_str() {
-        let mut vm = run("var a = \"abc\" + \"efg\";");
-        // let val = vm.stack.pop().unwrap();
-        // println!("{:?}", val)
-    }
-}
+#[path = "./vm_test.rs"]
+mod vm_test;

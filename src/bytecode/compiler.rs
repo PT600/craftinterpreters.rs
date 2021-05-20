@@ -9,7 +9,7 @@ use crate::scanner::{
 
 use anyhow::{bail, Context, Result};
 use smol_str::SmolStr;
-use std::{iter::Peekable, mem, rc::Rc, usize, vec::IntoIter};
+use std::{iter::Peekable, mem, ptr, rc::Rc, usize, vec::IntoIter};
 
 pub struct Parser {
     it: Peekable<IntoIter<Token>>,
@@ -78,9 +78,15 @@ pub struct Local {
     depth: i32,
 }
 
-pub struct Compiler<'a> {
-    pub strings: &'a mut Strings,
-    pub parser: &'a mut Parser,
+pub struct Compiler {
+    pub strings: Strings,
+    pub parser: Parser,
+    pub func: FunCompiler,
+    pub enclosings: Vec<FunCompiler>,
+}
+
+#[derive(Debug)]
+pub struct FunCompiler {
     pub arity: u8,
     pub chunk: Chunk,
     pub name: *const ObjString,
@@ -88,28 +94,41 @@ pub struct Compiler<'a> {
     pub scope_depth: i32,
 }
 
-impl<'a> Compiler<'a> {
-    pub fn new(strings: &'a mut Strings, parser: &'a mut Parser) -> Self {
-        Compiler {
-            strings,
-            parser,
+impl FunCompiler {
+    pub fn new(name: *const ObjString) -> Self {
+        FunCompiler {
             arity: 0,
             chunk: Default::default(),
-            name: std::ptr::null(),
+            name,
             locals: vec![],
             scope_depth: 0,
         }
     }
 
+}
+
+pub fn compile(source: &str) -> Result<Compiler> {
+    let strings = Strings::new();
+    let parser = Parser::new(source);
+    let mut compiler = Compiler::new(strings, parser);
+    compiler.compile()?;
+    Ok(compiler)
+}
+
+impl Compiler {
+    pub fn new(strings: Strings, parser: Parser) -> Self {
+        let func = FunCompiler::new(ptr::null());
+        Compiler {
+            strings,
+            parser,
+            func,
+            enclosings: vec![]
+        }
+    }
     pub fn compile(&mut self) -> Result<()> {
         while self.parser.peek().is_some() {
             self.decl()?;
         }
-        // let fun = ObjFunction {
-        //     chunk: self.chunk,
-        //     name: self.name,
-        //     arity: self.arity,
-        // };
         Ok(())
     }
 
@@ -130,9 +149,7 @@ impl<'a> Compiler<'a> {
         } else {
             self.emit_code(OpCode::Nil);
         }
-        self.parser
-            .consume(TokenType::SEMICOLON)
-            .context("expect ';' after expression!")?;
+        self.consume(SEMICOLON, "expect ';' after expression!")?;
         self.define_variable(id)?;
         Ok(())
     }
@@ -147,27 +164,30 @@ impl<'a> Compiler<'a> {
     }
 
     fn fun_decl(&mut self) -> Result<()> {
-        let name = self.consume_identifier()?;
-        let name = self.strings.add(name.to_string());
-        let mut compiler = Compiler::new(self.strings, self.parser);
-        compiler.function()?;
+        let id = self.consume_identifier()?;
+        let name = self.strings.add(id.to_string());
+        let func = FunCompiler::new(name);
+        let enclosing = mem::replace(&mut self.func, func);
+        self.enclosings.push(enclosing);
+        self.function()?;
+        let enclosing = self.enclosings.pop().context("enclosing is missing")?;
+        let func = mem::replace(&mut self.func, enclosing);
         let fun = ObjFunction {
-            arity: compiler.arity,
-            chunk: compiler.chunk,
+            arity: func.arity,
+            chunk: func.chunk,
             name,
         };
-        self.chunk.write_const(Value::ObjFunction(Rc::new(fun)), self.parser.line);
+        self.write_const(Value::ObjFunction(fun));
+        self.define_variable(id);
         Ok(())
     }
 
     fn function(&mut self) -> Result<()> {
-        self.parser
-            .consume(TokenType::LeftParen)
-            .context("expect ( after function decl")?;
-        self.scope_depth = 1;
+        self.consume(LeftParen,"expect ( after function decl")?;
+        self.begin_scope();
         if !self.parser.check(TokenType::RightParen) {
             loop {
-                self.arity += 1;
+                self.func.arity += 1;
                 let param = self.consume_identifier()?;
                 self.define_variable(param)?;
                 if !self.parser.matches(TokenType::COMMA) {
@@ -175,48 +195,45 @@ impl<'a> Compiler<'a> {
                 }
             }
         }
-        self.parser
-            .consume(TokenType::RightParen)
-            .context("expect ) after function decl")?;
+        self.consume(RightParen,"expect ) after function decl")?;
         self.block()?;
+        self.end_scope();
         Ok(())
     }
 
     fn define_variable(&mut self, id: SmolStr) -> Result<()> {
-        if self.scope_depth == 0 {
+        if self.func.scope_depth == 0 {
             let obj_str = self.strings.add(id.to_string());
             self.emit_code(OpCode::DefineGlobal);
-            self.chunk
-                .write_const(Value::ObjString(obj_str), self.parser.line);
+            let const_idx = self.func.chunk.add_const(Value::ObjString(obj_str));
+            self.emit_byte(const_idx as u8);
         } else {
-            if self.locals.len() >= u8::MAX as usize {
+            if self.func.locals.len() >= u8::MAX as usize {
                 bail!("too many locals!")
             }
-            for local in self.locals.iter().rev() {
-                if local.depth != -1 && local.depth < self.scope_depth {
+            for local in self.func.locals.iter().rev() {
+                if local.depth != -1 && local.depth < self.func.scope_depth {
                     break;
                 }
                 if local.name == id {
                     bail!("Already variable with this name in this scope.")
                 }
             }
-            self.locals.push(Local {
+            self.func.locals.push(Local {
                 name: id.clone(),
-                depth: self.scope_depth,
+                depth: self.func.scope_depth,
             })
         }
         Ok(())
     }
-
-    fn resolve_local(&self, id: &SmolStr) -> Option<usize> {
-        self.locals.iter().rev().position(|local| &local.name == id)
-    }
-
     fn statement(&mut self) -> Result<()> {
         if self.parser.matches(TokenType::PRINT) {
             self.print_stat(self.parser.line)
         } else if self.parser.matches(TokenType::LeftBrace) {
-            self.block()
+            self.begin_scope();
+            let result = self.block();
+            self.end_scope();
+            result
         } else if self.parser.matches(TokenType::IF) {
             self.if_stat()
         } else {
@@ -226,21 +243,14 @@ impl<'a> Compiler<'a> {
 
     fn print_stat(&mut self, line: usize) -> Result<()> {
         self.expr()?;
-        self.parser
-            .consume(TokenType::SEMICOLON)
-            .context("Expect ';' after value.")?;
-        self.chunk.write(OpCode::Print, line);
+        self.consume(SEMICOLON, "Expect ';' after value.")?;
+        self.emit_code(OpCode::Print);
         Ok(())
     }
-
     fn if_stat(&mut self) -> Result<()> {
-        self.parser
-            .consume(TokenType::LeftParen)
-            .context("expect '(' before if condition")?;
+        self.consume(LeftParen, "expect '(' before if condition")?;
         self.expr()?;
-        self.parser
-            .consume(TokenType::RightParen)
-            .context("expect ')' after if contidion")?;
+        self.consume(RightParen, "expect ')' after if contidion")?;
         let (jump_arg_start, jump_arg_end) = self.emit_jump(OpCode::JumpIfFalse);
         self.statement()?;
         self.patch_jump(jump_arg_start, jump_arg_end);
@@ -251,58 +261,36 @@ impl<'a> Compiler<'a> {
         }
         Ok(())
     }
-
-    fn emit_jump(&mut self, code: OpCode) -> (usize, usize) {
-        self.emit_code(code);
-        let jump_arg_start = self.chunk.codes.len();
-        self.emit_byte(0);
-        self.emit_byte(0);
-        let jump_arg_end = self.chunk.codes.len();
-        (jump_arg_start, jump_arg_end)
-    }
-
-    fn patch_jump(&mut self, jump_arg_start: usize, jump_arg_end: usize) {
-        let jump = self.chunk.codes.len() - jump_arg_end;
-        self.chunk.codes[jump_arg_start] = ((jump >> 8) & 0xff) as u8;
-        self.chunk.codes[jump_arg_start + 1] = (jump & 0xff) as u8;
-    }
-
     fn expr_stat(&mut self) -> Result<()> {
         self.expr()?;
-        self.parser
-            .consume(TokenType::SEMICOLON)
-            .context("expect ';' after expr")?;
+        self.consume(TokenType::SEMICOLON, "expect ';' after expr")?;
         self.emit_code(OpCode::Pop);
         Ok(())
     }
 
     fn block(&mut self) -> Result<()> {
-        self.scope_depth += 1;
         while !self.parser.check(TokenType::RightBrace) {
             self.decl()?;
         }
-        self.parser
-            .consume(TokenType::RightBrace)
-            .context("expect '}' after block")?;
-        self.scope_depth -= 1;
-        while let Some(local) = self.locals.last() {
-            if local.depth > self.scope_depth {
-                self.locals.pop();
+        self.consume(TokenType::RightBrace,"expect '}' after block")?;
+        Ok(())
+    }
+    fn begin_scope(&mut self) {
+        self.func.scope_depth += 1;
+    }
+
+    fn end_scope(&mut self) {
+        self.func.scope_depth -= 1;
+        while let Some(local) = self.func.locals.last() {
+            if local.depth > self.func.scope_depth {
+                self.func.locals.pop();
                 self.emit_code(OpCode::Pop);
             } else {
                 break;
             }
         }
-        Ok(())
     }
 
-    fn emit_byte(&mut self, code: u8) {
-        self.chunk.write_byte(code, self.parser.line)
-    }
-
-    fn emit_code(&mut self, code: OpCode) {
-        self.chunk.write(code, self.parser.line)
-    }
     pub fn expr(&mut self) -> Result<()> {
         self.parse_precedence(Precedence::Start)
     }
@@ -349,20 +337,20 @@ impl<'a> Compiler<'a> {
             FALSE => {
                 self.emit_code(OpCode::False);
             }
-            BANG => self.chunk.write(OpCode::Not, line),
+            BANG => self.chunk().write(OpCode::Not, line),
             NUMBER(num) => {
-                self.chunk.write_const(Value::Number(*num), line);
+                self.chunk().write_const(Value::Number(*num), line);
             }
             STRING(str) => {
                 let s = self.strings.add(str.into());
-                self.chunk.write_const(Value::ObjString(s), line);
+                self.chunk().write_const(Value::ObjString(s), line);
             }
             IDENTIFIER(id) => {
                 let (arg, get_op, set_op) = if let Some(arg) = self.resolve_local(id) {
                     (arg, OpCode::GetLocal, OpCode::SetLocal)
                 } else {
                     let obj_str = self.strings.add(id.to_string());
-                    let arg = self.chunk.add_const(Value::ObjString(obj_str));
+                    let arg = self.chunk().add_const(Value::ObjString(obj_str));
                     (arg, OpCode::GetGlobal, OpCode::SetGlobal)
                 };
                 if can_assign && self.parser.matches(TokenType::EQUAL) {
@@ -371,7 +359,7 @@ impl<'a> Compiler<'a> {
                 } else {
                     self.emit_code(get_op);
                 }
-                self.chunk.write_byte(arg as u8, line)
+                self.emit_byte(arg as u8)
             }
             LeftParen => {
                 self.parse_precedence(Precedence::Start)?;
@@ -381,7 +369,7 @@ impl<'a> Compiler<'a> {
             }
             MINUS => {
                 self.parse_precedence(Precedence::Unary)?;
-                self.chunk.write(OpCode::Negate, line);
+                self.emit_code(OpCode::Negate);
             }
             _ => bail!("unsupport unary {:?}", token.ttype),
         }
@@ -429,9 +417,7 @@ impl<'a> Compiler<'a> {
                 }
             }
         }
-        self.parser
-            .consume(TokenType::RightParen)
-            .context("Expect ) after arg list")?;
+        self.consume(RightParen,"Expect ) after arg list")?;
         Ok(arg_count)
     }
 
@@ -440,29 +426,49 @@ impl<'a> Compiler<'a> {
         self.emit_code(code);
         Ok(())
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::OpCode::*;
-    use super::*;
-
-    fn compile_assert(source: &str, codes: Vec<u8>) {
-        let mut strings = Strings::new();
-        let mut parser = Parser::new(source);
-        let mut compiler = Compiler::new(&mut strings, &mut parser);
-        compiler.compile().unwrap();
-        assert_eq!(compiler.chunk.codes, codes);
-    }
-    #[test]
-    fn unary() {
-        compile_assert("1", vec![Const as u8, 0u8]);
-
-        compile_assert("-1", vec![Const as u8, 0u8, Negate as u8]);
+    fn resolve_local(&self, id: &SmolStr) -> Option<usize> {
+        self.func.locals.iter().rev().position(|local| &local.name == id)
     }
 
-    #[test]
-    fn binary() {
-        compile_assert("1 + 1", vec![Const as u8, 0, Const as u8, 1, Add as u8]);
+    fn emit_jump(&mut self, code: OpCode) -> (usize, usize) {
+        self.emit_code(code);
+        let jump_arg_start = self.chunk().codes.len();
+        self.emit_byte(0);
+        self.emit_byte(0);
+        let jump_arg_end = self.chunk().codes.len();
+        (jump_arg_start, jump_arg_end)
     }
+
+    fn patch_jump(&mut self, jump_arg_start: usize, jump_arg_end: usize) {
+        let jump = self.chunk().codes.len() - jump_arg_end;
+        self.chunk().codes[jump_arg_start] = ((jump >> 8) & 0xff) as u8;
+        self.chunk().codes[jump_arg_start + 1] = (jump & 0xff) as u8;
+    }
+
+    fn write_const(&mut self, value: Value){
+        self.func.chunk.write_const(value, self.parser.line);
+    }
+
+    fn emit_byte(&mut self, code: u8) {
+        let line = self.parser.line;
+        self.chunk().write_byte(code, line)
+    }
+
+    fn emit_code(&mut self, code: OpCode) {
+        let line = self.parser.line;
+        self.chunk().write(code, line)
+    } 
+ 
+    fn chunk(&mut self)-> &mut Chunk {
+        &mut self.func.chunk
+    }
+
+    fn consume(&mut self, ttype: TokenType, err_msg: &'static str) -> Result<()> {
+        self.parser
+            .consume(ttype)
+            .context(err_msg)?;
+        Ok(())
+    }
+
+
 }

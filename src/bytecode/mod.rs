@@ -6,3 +6,4 @@ mod vm;
 mod strings;
 mod object;
 mod table;
+mod debug;
