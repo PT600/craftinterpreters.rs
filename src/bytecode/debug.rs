@@ -1,59 +1,86 @@
-use super::{chunk::Chunk, compiler::{Compiler, FunCompiler, Local}, object::{ObjFunction, ObjString}, strings::Strings, value::Value};
+use anyhow::Result;
+use std::{fmt::{Display, write}, ptr};
+
 use super::chunk::OpCode;
+use super::{
+    chunk::Chunk,
+    compiler::{Compiler, FunCompiler, Local},
+    object::{ObjFunction, ObjString},
+    value::Value,
+};
 
-pub fn disassemble(func: &FunCompiler) {
-  disassemble_fun(func.name, &func.chunk);
-  disassemble_locals(&func.locals);
+pub fn fmt_func(func: &FunCompiler, f: &mut std::fmt::Formatter<'_>) -> Result<()> {
+    if func.name == ptr::null() {
+        write!(f, "name: __script__")?;
+    }else {
+        write!(f, "name: {:?}", unsafe {&*func.name})?;
+    }
+    writeln!(f, ", artiy: {}, scope_depth: {}", func.arity, func.scope_depth)?;
+    fmt_locals(&func.locals, f)?;
+    fmt_chunk(&func.chunk, f)?;
+    Ok(())
 }
 
-pub fn disassemble_locals(locals: &Vec<Local>) {
-  for (idx, local) in locals.iter().enumerate() {
-    println!("local: {} ==> {:?}", idx, local)
-  }
+pub fn fmt_fun(func: &ObjFunction, f: &mut std::fmt::Formatter<'_>) -> Result<()> {
+    write!(f, "name: {:?}, artiy: {}", unsafe { &*func.name }, func.arity)?;
+    fmt_chunk(&func.chunk, f)?;
+    Ok(())
 }
-pub fn disassemble_fun(name: *const ObjString, chunk: &Chunk) {
-    println!("==fun: {:?} ==", unsafe{&*name});
+fn fmt_locals(locals: &Vec<Local>, f: &mut std::fmt::Formatter<'_>) -> Result<()> {
+    for (idx, local) in locals.iter().enumerate() {
+        write!(f, "local: {} ==> {:?}", idx, local)?;
+    }
+    Ok(())
+}
+
+fn fmt_chunk(chunk: &Chunk, f: &mut std::fmt::Formatter<'_>) -> Result<()> {
     let mut idx = 0usize;
     while idx < chunk.codes.len() {
-        idx = disassemble_code(chunk, idx)
+        idx = fmt_code(chunk, idx, f)?;
     }
+    Ok(())
 }
-
-fn disassemble_value(value: &Value) {
-  
-}
-
-fn disassemble_code(chunk: &Chunk, idx: usize) -> usize {
+fn fmt_code(chunk: &Chunk, idx: usize, f: &mut std::fmt::Formatter<'_>) -> Result<usize> {
     use OpCode::*;
     let lines = &chunk.lines;
     let consts = &chunk.consts;
     let codes = &chunk.codes;
     let mut idx = idx;
-    print!("{:0>4}", idx);
+    write!(f, "{:0>4}", idx)?;
     if idx > 0 && lines[idx] == lines[idx - 1] {
-        print!("    | ")
+        write!(f, "    | ")?;
     } else {
-        print!("{:>4}", lines[idx])
+        write!(f, "{:>4} ", lines[idx])?;
     }
     let byte = codes[idx];
     let code = OpCode::from_u8(byte).unwrap();
     match code {
-        Return => println!("OP_RETURN"),
+        Return => writeln!(f, "OP_RETURN")?,
         Const => {
             idx += 1;
             let const_idx = codes[idx];
-            println!("OP_CONSTANT: {}", consts[const_idx as usize]);
+            writeln!(f, "OP_CONSTANT: {}", consts[const_idx as usize])?;
         }
         Nil | True | False | Pop => {
-            println!("{:?}", code)
+            writeln!(f, "{:?}", code)?;
         }
         DefineGlobal | GetGlobal | SetGlobal | GetLocal | SetLocal => {
             idx += 1;
             let const_idx = codes[idx];
-            println!("{:?}: {}", code, consts[const_idx as usize]);
+            writeln!(f, "{:?}:", code )?;
+            fmt_value(&consts[const_idx as usize], f)?;
         }
-        Negate => println!("OP_Negate"),
-        _ =>  println!("{:?}", code) 
+        Negate => writeln!(f, "OP_Negate")?,
+        _ => writeln!(f, "{:?}", code)?,
     }
-    idx + 1
+    Ok(idx + 1)
+}
+
+fn fmt_value(value: &Value, f: &mut std::fmt::Formatter<'_>) -> Result<()> {
+    match value {
+        Value::ObjString(s) => writeln!(f, "{:?}", unsafe{&**s})?,
+        Value::ObjFunction(fun) => fmt_fun(fun, f)?,
+        _ => writeln!(f, "{:?}", value)?,
+    }
+    Ok(())
 }

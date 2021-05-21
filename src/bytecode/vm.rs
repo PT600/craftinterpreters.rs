@@ -2,12 +2,7 @@ use std::{collections::HashMap, rc::Rc, usize};
 
 use anyhow::{bail, Context, Result};
 
-use super::{
-    compiler::{compile, Compiler, Parser},
-    object::{ObjFunction, ObjString, Object},
-    strings::Strings,
-    table::Table,
-};
+use super::{compiler::{compile }, *, object::{ObjFunction, ObjString, Object}, strings::Strings, table::Table};
 
 use super::chunk::{
     Chunk,
@@ -82,14 +77,14 @@ impl Vm {
     fn interpreter(&mut self, source: &str) -> Result<()> {
         let mut compiler = compile(source)?;
         let func = compiler.func;
-        println!("func: {:?}", func);
-        let fun = ObjFunction {
+        println!("funCompiler: {}", func);
+        let fun = Rc::new(ObjFunction {
             chunk: func.chunk,
             name: func.name,
             arity: func.arity,
-        };
-        // self.push(Value::ObjFunction(fun));
-        let result = self.call(&fun, 0);
+        });
+        self.push(Value::ObjFunction(fun.clone()));
+        let result = self.call(fun.clone(), 0);
         if result.is_err() {
             println!("fun: {:?}", fun);
             println!("vm: {:?}", self);
@@ -97,7 +92,7 @@ impl Vm {
         result
     }
 
-    fn call(&mut self, fun: &ObjFunction, arg_count: usize) -> Result<()> {
+    fn call(&mut self, fun: Rc<ObjFunction>, arg_count: usize) -> Result<()> {
         let mut frame = CallFrame {
             chunk: &fun.chunk,
             ip: 0,
@@ -244,7 +239,7 @@ impl Vm {
 
     fn call_value(&mut self, callee: &Value, arg_count: usize) -> Result<()> {
         match callee {
-            Value::ObjFunction(fun) => self.call(fun, arg_count),
+            Value::ObjFunction(fun) => self.call(fun.clone(), arg_count),
             _ => bail!("Can only call functions and classes!"),
         }
     }

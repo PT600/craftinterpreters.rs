@@ -25,7 +25,24 @@
     }
     #[test]
     fn add_str() {
-        let mut vm = run("var a = \"abc\" + \"efg\";");
+        let code = r##"
+            var a = "abc" + "efg";
+            print a;
+        "##;
+        let mut vm = run(code);
         // let val = vm.stack.pop().unwrap();
         // println!("{:?}", val)
+    }
+
+    #[test]
+    fn function(){
+        let code = r#"
+            var a = 1;
+            fun inc(){
+                a = a + 1;
+            }
+            inc();
+            print a;
+        "#;
+        let vm = run(code);
     }

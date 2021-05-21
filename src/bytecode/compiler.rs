@@ -1,4 +1,4 @@
-use super::{chunk::*, strings::Strings};
+use super::{chunk::*, debug, strings::Strings};
 use super::{object::ObjFunction, table::Table};
 use super::{object::ObjString, value::Value};
 
@@ -9,7 +9,7 @@ use crate::scanner::{
 
 use anyhow::{bail, Context, Result};
 use smol_str::SmolStr;
-use std::{iter::Peekable, mem, ptr, rc::Rc, usize, vec::IntoIter};
+use std::{fmt::Display, iter::Peekable, mem, ptr, rc::Rc, usize, vec::IntoIter};
 
 pub struct Parser {
     it: Peekable<IntoIter<Token>>,
@@ -104,15 +104,31 @@ impl FunCompiler {
             scope_depth: 0,
         }
     }
+}
 
+impl Display for FunCompiler {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        debug::fmt_func(self, f);
+        Ok(())
+    }
 }
 
 pub fn compile(source: &str) -> Result<Compiler> {
     let strings = Strings::new();
     let parser = Parser::new(source);
     let mut compiler = Compiler::new(strings, parser);
-    compiler.compile()?;
-    Ok(compiler)
+    let result = compiler.compile();
+    match &result{
+        Err(e) => {
+            println!("compile err: {:?}", result);
+            for enclosing in &compiler.enclosings{
+                println!("enclosing: {}", enclosing);
+            }
+            println!("func: {}", compiler.func);
+            bail!("compile error: {}", e)
+        }
+        _ => Ok(compiler)
+    }
 }
 
 impl Compiler {
@@ -177,8 +193,8 @@ impl Compiler {
             chunk: func.chunk,
             name,
         };
-        self.write_const(Value::ObjFunction(fun));
-        self.define_variable(id);
+        self.write_const(Value::ObjFunction(Rc::new(fun)));
+        self.define_variable(id)?;
         Ok(())
     }
 
