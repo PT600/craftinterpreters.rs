@@ -2,10 +2,10 @@ use super::{chunk::*, debug, strings::Strings};
 use super::{object::ObjFunction, table::Table};
 use super::{object::ObjString, value::Value};
 
-use crate::scanner::{
+use crate::{ast_printer::print, scanner::{
     Scanner, Token,
     TokenType::{self, *},
-};
+}};
 
 use anyhow::{bail, Context, Result};
 use smol_str::SmolStr;
@@ -212,6 +212,7 @@ impl Compiler {
             }
         }
         self.consume(RightParen,"expect ) after function decl")?;
+        self.consume(LeftBrace, "expect { before function body")?;
         self.block()?;
         self.end_scope();
         Ok(())
@@ -243,7 +244,7 @@ impl Compiler {
         Ok(())
     }
     fn statement(&mut self) -> Result<()> {
-        if self.parser.matches(TokenType::PRINT) {
+        let result = if self.parser.matches(TokenType::PRINT) {
             self.print_stat(self.parser.line)
         } else if self.parser.matches(TokenType::LeftBrace) {
             self.begin_scope();
@@ -254,7 +255,8 @@ impl Compiler {
             self.if_stat()
         } else {
             self.expr_stat()
-        }
+        };
+        result
     }
 
     fn print_stat(&mut self, line: usize) -> Result<()> {
@@ -336,6 +338,7 @@ impl Compiler {
             .map(|t| match t.ttype {
                 PLUS | MINUS => Precedence::Term,
                 STAR | SLASH => Precedence::Factor,
+                LeftParen => Precedence::Call,
                 _ => Precedence::Start,
             })
             .unwrap_or(Precedence::Start)
@@ -393,6 +396,7 @@ impl Compiler {
     }
 
     fn binary(&mut self, token: Token, precedence: Precedence) -> Result<()> {
+        println!("binary, tokn: {:?}", token);
         match &token.ttype {
             LeftParen => {
                 let arg_count = self.argument_list()?;

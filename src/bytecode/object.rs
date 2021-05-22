@@ -1,9 +1,15 @@
-use std::{collections::hash_map::DefaultHasher, hash::{Hash, Hasher}, ptr, rc::Rc, usize};
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+    ptr,
+    rc::Rc,
+    usize,
+};
 
 use super::chunk::Chunk;
 
-#[derive(Debug,)]
+#[derive(Debug)]
 pub struct Object {
     pub next: Option<Rc<Object>>,
     pub obj: Obj,
@@ -21,7 +27,7 @@ impl Object {
     }
 }
 
-#[derive(Debug )]
+#[derive(Debug)]
 pub enum Obj {
     String(*const ObjString),
     Function(ObjFunction),
@@ -45,7 +51,15 @@ impl ObjFunction {
         Self {
             arity: 0,
             chunk: Default::default(),
-            name: ptr::null()
+            name: ptr::null(),
+        }
+    }
+
+    pub fn get_name(&self) -> &str {
+        if self.name == ptr::null() {
+            "__script__"
+        } else {
+            &(unsafe { &*self.name }).data
         }
     }
 }

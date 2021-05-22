@@ -2,7 +2,13 @@ use std::{collections::HashMap, rc::Rc, usize};
 
 use anyhow::{bail, Context, Result};
 
-use super::{compiler::{compile }, *, object::{ObjFunction, ObjString, Object}, strings::Strings, table::Table};
+use super::{
+    compiler::compile,
+    object::{ObjFunction, ObjString, Object},
+    strings::Strings,
+    table::Table,
+    *,
+};
 
 use super::chunk::{
     Chunk,
@@ -32,7 +38,7 @@ impl<'a> CallFrame<'a> {
         self.ip += 1;
         self.chunk.consts[idx as usize].clone()
     }
-    
+
     fn read_string(&mut self) -> Result<*const ObjString> {
         if let Value::ObjString(id) = self.read_const() {
             return Ok(id);
@@ -93,6 +99,7 @@ impl Vm {
     }
 
     fn call(&mut self, fun: Rc<ObjFunction>, arg_count: usize) -> Result<()> {
+        println!("call fun: {}", fun.get_name());
         let mut frame = CallFrame {
             chunk: &fun.chunk,
             ip: 0,
@@ -159,10 +166,10 @@ impl Vm {
                 let val = self.pop()?;
                 match val {
                     Value::ObjString(key) => {
-                        println!("{:?}", unsafe { &*key })
+                        println!("===> {:?}", unsafe { &*key })
                     }
                     _ => {
-                        println!("{:?}", val)
+                        println!("===> {:?}", val)
                     }
                 }
             }
@@ -173,7 +180,6 @@ impl Vm {
                 let name = frame.read_string()?;
                 let val = self.pop()?;
                 self.globals.set(name, val);
-                self.pop()?;
             }
             GetGlobal => {
                 let name = frame.read_string()?;
