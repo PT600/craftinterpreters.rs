@@ -2,10 +2,13 @@ use super::{chunk::*, debug, strings::Strings};
 use super::{object::ObjFunction, table::Table};
 use super::{object::ObjString, value::Value};
 
-use crate::{ast_printer::print, scanner::{
-    Scanner, Token,
-    TokenType::{self, *},
-}};
+use crate::{
+    ast_printer::print,
+    scanner::{
+        Scanner, Token,
+        TokenType::{self, *},
+    },
+};
 
 use anyhow::{bail, Context, Result};
 use smol_str::SmolStr;
@@ -108,8 +111,7 @@ impl FunCompiler {
 
 impl Display for FunCompiler {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        debug::fmt_func(self, f);
-        Ok(())
+        debug::fmt_func(self, f)
     }
 }
 
@@ -118,16 +120,16 @@ pub fn compile(source: &str) -> Result<Compiler> {
     let parser = Parser::new(source);
     let mut compiler = Compiler::new(strings, parser);
     let result = compiler.compile();
-    match &result{
+    match &result {
         Err(e) => {
             println!("compile err: {:?}", result);
-            for enclosing in &compiler.enclosings{
+            for enclosing in &compiler.enclosings {
                 println!("enclosing: {}", enclosing);
             }
             println!("func: {}", compiler.func);
             bail!("compile error: {}", e)
         }
-        _ => Ok(compiler)
+        _ => Ok(compiler),
     }
 }
 
@@ -138,7 +140,7 @@ impl Compiler {
             strings,
             parser,
             func,
-            enclosings: vec![]
+            enclosings: vec![],
         }
     }
     pub fn compile(&mut self) -> Result<()> {
@@ -183,6 +185,10 @@ impl Compiler {
         let id = self.consume_identifier()?;
         let name = self.strings.add(id.to_string());
         let func = FunCompiler::new(name);
+        self.func.locals.push(Local {
+            name: "".into(),
+            depth: 0,
+        });
         let enclosing = mem::replace(&mut self.func, func);
         self.enclosings.push(enclosing);
         self.function()?;
@@ -199,7 +205,7 @@ impl Compiler {
     }
 
     fn function(&mut self) -> Result<()> {
-        self.consume(LeftParen,"expect ( after function decl")?;
+        self.consume(LeftParen, "expect ( after function decl")?;
         self.begin_scope();
         if !self.parser.check(TokenType::RightParen) {
             loop {
@@ -211,7 +217,7 @@ impl Compiler {
                 }
             }
         }
-        self.consume(RightParen,"expect ) after function decl")?;
+        self.consume(RightParen, "expect ) after function decl")?;
         self.consume(LeftBrace, "expect { before function body")?;
         self.block()?;
         self.end_scope();
@@ -219,6 +225,7 @@ impl Compiler {
     }
 
     fn define_variable(&mut self, id: SmolStr) -> Result<()> {
+        println!("define_var, func: {}", self.func);
         if self.func.scope_depth == 0 {
             let obj_str = self.strings.add(id.to_string());
             self.emit_code(OpCode::DefineGlobal);
@@ -253,6 +260,8 @@ impl Compiler {
             result
         } else if self.parser.matches(TokenType::IF) {
             self.if_stat()
+        } else if self.parser.matches(TokenType::RETURN) {
+            self.return_stat()
         } else {
             self.expr_stat()
         };
@@ -279,6 +288,18 @@ impl Compiler {
         }
         Ok(())
     }
+
+    fn return_stat(&mut self) -> Result<()> {
+        if self.parser.matches(TokenType::SEMICOLON) {
+            self.emit_code(OpCode::Nil);
+        } else {
+            self.expr()?;
+            self.consume(TokenType::SEMICOLON, "expect ';' after return")?;
+        }
+        self.emit_code(OpCode::Return);
+        Ok(())
+    }
+
     fn expr_stat(&mut self) -> Result<()> {
         self.expr()?;
         self.consume(TokenType::SEMICOLON, "expect ';' after expr")?;
@@ -290,7 +311,7 @@ impl Compiler {
         while !self.parser.check(TokenType::RightBrace) {
             self.decl()?;
         }
-        self.consume(TokenType::RightBrace,"expect '}' after block")?;
+        self.consume(TokenType::RightBrace, "expect '}' after block")?;
         Ok(())
     }
     fn begin_scope(&mut self) {
@@ -336,6 +357,7 @@ impl Compiler {
         self.parser
             .peek()
             .map(|t| match t.ttype {
+                EqualEqual | BangEqual | GREATER | GreaterEqual | LESS | LessEqual => Precedence::Comparision,
                 PLUS | MINUS => Precedence::Term,
                 STAR | SLASH => Precedence::Factor,
                 LeftParen => Precedence::Call,
@@ -396,7 +418,6 @@ impl Compiler {
     }
 
     fn binary(&mut self, token: Token, precedence: Precedence) -> Result<()> {
-        println!("binary, tokn: {:?}", token);
         match &token.ttype {
             LeftParen => {
                 let arg_count = self.argument_list()?;
@@ -418,6 +439,12 @@ impl Compiler {
                 self.patch_jump(jump_arg_start, jump_arg_end);
                 Ok(())
             }
+            EqualEqual => self.handle_binary(OpCode::EqualEqual, precedence),
+            BangEqual => self.handle_binary(OpCode::BangEqual, precedence),
+            GreaterEqual => self.handle_binary(OpCode::GreaterEqual, precedence),
+            GREATER => self.handle_binary(OpCode::Greater, precedence),
+            LessEqual => self.handle_binary(OpCode::LessEqual, precedence),
+            LESS=> self.handle_binary(OpCode::Less, precedence),
             PLUS => self.handle_binary(OpCode::Add, precedence),
             MINUS => self.handle_binary(OpCode::Substract, precedence),
             STAR => self.handle_binary(OpCode::Multiply, precedence),
@@ -437,7 +464,7 @@ impl Compiler {
                 }
             }
         }
-        self.consume(RightParen,"Expect ) after arg list")?;
+        self.consume(RightParen, "Expect ) after arg list")?;
         Ok(arg_count)
     }
 
@@ -447,7 +474,12 @@ impl Compiler {
         Ok(())
     }
     fn resolve_local(&self, id: &SmolStr) -> Option<usize> {
-        self.func.locals.iter().rev().position(|local| &local.name == id)
+        self.func
+            .locals
+            .iter()
+            .rev()
+            .position(|local| &local.name == id)
+            .map(|position| self.func.locals.len() - position)
     }
 
     fn emit_jump(&mut self, code: OpCode) -> (usize, usize) {
@@ -465,7 +497,7 @@ impl Compiler {
         self.chunk().codes[jump_arg_start + 1] = (jump & 0xff) as u8;
     }
 
-    fn write_const(&mut self, value: Value){
+    fn write_const(&mut self, value: Value) {
         self.func.chunk.write_const(value, self.parser.line);
     }
 
@@ -477,18 +509,14 @@ impl Compiler {
     fn emit_code(&mut self, code: OpCode) {
         let line = self.parser.line;
         self.chunk().write(code, line)
-    } 
- 
-    fn chunk(&mut self)-> &mut Chunk {
+    }
+
+    fn chunk(&mut self) -> &mut Chunk {
         &mut self.func.chunk
     }
 
     fn consume(&mut self, ttype: TokenType, err_msg: &'static str) -> Result<()> {
-        self.parser
-            .consume(ttype)
-            .context(err_msg)?;
+        self.parser.consume(ttype).context(err_msg)?;
         Ok(())
     }
-
-
 }

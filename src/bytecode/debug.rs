@@ -1,4 +1,4 @@
-use anyhow::Result;
+use std::fmt::Result;
 use std::{fmt::{Display, write}, ptr};
 
 use super::chunk::OpCode;
@@ -9,11 +9,11 @@ use super::{
     value::Value,
 };
 
-pub fn fmt_func(func: &FunCompiler, f: &mut std::fmt::Formatter<'_>) -> Result<()> {
+pub fn fmt_func(func: &FunCompiler, f: &mut std::fmt::Formatter<'_>) -> Result {
     if func.name == ptr::null() {
         write!(f, "name: __script__")?;
     }else {
-        write!(f, "name: {:?}", unsafe {&*func.name})?;
+        write!(f, "name: {:?}", (unsafe {&*func.name}).data)?;
     }
     writeln!(f, ", artiy: {}, scope_depth: {}", func.arity, func.scope_depth)?;
     fmt_locals(&func.locals, f)?;
@@ -21,27 +21,29 @@ pub fn fmt_func(func: &FunCompiler, f: &mut std::fmt::Formatter<'_>) -> Result<(
     Ok(())
 }
 
-pub fn fmt_fun(func: &ObjFunction, f: &mut std::fmt::Formatter<'_>) -> Result<()> {
+pub fn fmt_fun(func: &ObjFunction, f: &mut std::fmt::Formatter<'_>) -> Result {
     write!(f, "name: {:?}, artiy: {}", unsafe { &*func.name }, func.arity)?;
     fmt_chunk(&func.chunk, f)?;
     Ok(())
 }
-fn fmt_locals(locals: &Vec<Local>, f: &mut std::fmt::Formatter<'_>) -> Result<()> {
+fn fmt_locals(locals: &Vec<Local>, f: &mut std::fmt::Formatter<'_>) -> Result {
     for (idx, local) in locals.iter().enumerate() {
-        write!(f, "local: {} ==> {:?}", idx, local)?;
+        writeln!(f, "local: {} ==> {:?}", idx, local)?;
     }
     Ok(())
 }
 
-fn fmt_chunk(chunk: &Chunk, f: &mut std::fmt::Formatter<'_>) -> Result<()> {
+pub fn fmt_chunk(chunk: &Chunk, f: &mut std::fmt::Formatter<'_>) -> Result {
     let mut idx = 0usize;
     while idx < chunk.codes.len() {
-        idx = fmt_code(chunk, idx, f)?;
+        fmt_code(chunk, &mut idx, f)?;
     }
     Ok(())
 }
-fn fmt_code(chunk: &Chunk, idx: usize, f: &mut std::fmt::Formatter<'_>) -> Result<usize> {
+
+fn fmt_code(chunk: &Chunk, idx_mut: &mut usize, f: &mut std::fmt::Formatter<'_>) -> Result {
     use OpCode::*;
+    let idx = *idx_mut;
     let lines = &chunk.lines;
     let consts = &chunk.consts;
     let codes = &chunk.codes;
@@ -64,23 +66,14 @@ fn fmt_code(chunk: &Chunk, idx: usize, f: &mut std::fmt::Formatter<'_>) -> Resul
         Nil | True | False | Pop => {
             writeln!(f, "{:?}", code)?;
         }
-        DefineGlobal | GetGlobal | SetGlobal | GetLocal | SetLocal => {
+        DefineGlobal | GetGlobal | SetGlobal | GetLocal | SetLocal | Call => {
             idx += 1;
-            let const_idx = codes[idx];
-            writeln!(f, "{:?}:", code )?;
-            fmt_value(&consts[const_idx as usize], f)?;
+            let index = codes[idx];
+            writeln!(f, "code: {:?}, index: {}", code, index )?;
         }
         Negate => writeln!(f, "OP_Negate")?,
         _ => writeln!(f, "{:?}", code)?,
     }
-    Ok(idx + 1)
-}
-
-fn fmt_value(value: &Value, f: &mut std::fmt::Formatter<'_>) -> Result<()> {
-    match value {
-        Value::ObjString(s) => writeln!(f, "{:?}", unsafe{&**s})?,
-        Value::ObjFunction(fun) => fmt_fun(fun, f)?,
-        _ => writeln!(f, "{:?}", value)?,
-    }
+    *idx_mut = idx + 1;
     Ok(())
 }

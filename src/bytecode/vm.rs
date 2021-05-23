@@ -1,4 +1,4 @@
-use std::{collections::HashMap, rc::Rc, usize};
+use std::{collections::HashMap, fmt::Display, rc::Rc, usize};
 
 use anyhow::{bail, Context, Result};
 
@@ -18,10 +18,18 @@ use super::value::Value;
 
 const STACK_MAX: usize = 256;
 
+#[derive(Debug)]
 struct CallFrame<'a> {
     chunk: &'a Chunk,
     ip: usize,
     slots: usize,
+}
+
+impl<'a> Display for CallFrame<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "ip: {}, slots: {}", self.ip, self.slots)?;
+        debug::fmt_chunk(&self.chunk, f)
+    }
 }
 
 impl<'a> CallFrame<'a> {
@@ -46,7 +54,7 @@ impl<'a> CallFrame<'a> {
         bail!("xx")
     }
 
-    fn read_byte(&mut self) -> Option<OpCode> {
+    fn read_code(&mut self) -> Option<OpCode> {
         if self.ip < self.chunk.codes.len() {
             let code = self.chunk.codes[self.ip];
             self.ip += 1;
@@ -57,7 +65,7 @@ impl<'a> CallFrame<'a> {
     }
 
     fn read_index(&mut self, err: &'static str) -> Result<usize> {
-        let idx = self.read_byte().context(err)? as usize;
+        let idx = self.read_code().context(err)? as usize;
         Ok(self.slots + idx)
     }
 }
@@ -90,8 +98,12 @@ impl Vm {
             arity: func.arity,
         });
         self.push(Value::ObjFunction(fun.clone()));
+        if true {
+            // return Ok(())
+        }
         let result = self.call(fun.clone(), 0);
         if result.is_err() {
+            println!("err: {:?}", result);
             println!("fun: {:?}", fun);
             println!("vm: {:?}", self);
         }
@@ -99,16 +111,26 @@ impl Vm {
     }
 
     fn call(&mut self, fun: Rc<ObjFunction>, arg_count: usize) -> Result<()> {
-        println!("call fun: {}", fun.get_name());
         let mut frame = CallFrame {
             chunk: &fun.chunk,
             ip: 0,
             slots: self.stack.len() - arg_count - 1,
         };
-        while let Some(code) = frame.read_byte() {
+        let mut return_value = Value::Nil;
+        while let Some(code) = frame.read_code() {
             println!("code: {:?}", code);
-            self.run(code, &mut frame)?;
+            if matches!(code, Return) {
+                return_value = self.pop()?;
+                break;
+            } else {
+                self.run(code, &mut frame)?;
+            }
         }
+        let pop_count = self.stack.len() - frame.slots;
+        for _ in 0..pop_count {
+            self.pop()?;
+        }
+        self.push(return_value);
         Ok(())
     }
 
@@ -132,7 +154,7 @@ impl Vm {
                 let result = self.pop_num()?;
                 self.push_num(-result)
             }
-            Add => match self.peek() {
+            Add => match self.peek_num(1) {
                 Some(Value::Number(_)) => {
                     let right = self.pop_num()?;
                     let left = self.pop_num()?;
@@ -141,7 +163,7 @@ impl Vm {
                 Some(Value::ObjString(_)) => {
                     let right = self.pop()?.as_str()?;
                     let left = self.pop()?.as_str()?;
-                    let result = unsafe { format!("{}{}", (*left).data, (*right).data) };
+                    let result = format!("{}{}", left, right);
                     let key = self.strings.add(result);
                     self.push(Value::ObjString(key));
                 }
@@ -162,16 +184,39 @@ impl Vm {
                 let left = self.pop_num()?;
                 self.push_num(left / right)
             }
+            EqualEqual => {
+                let right = self.pop_num()?;
+                let left = self.pop_num()?;
+                self.push(Value::Boolean(left == right))
+            }
+            BangEqual => {
+                let right = self.pop_num()?;
+                let left = self.pop_num()?;
+                self.push(Value::Boolean(left != right))
+            }
+            Greater => {
+                let right = self.pop_num()?;
+                let left = self.pop_num()?;
+                self.push(Value::Boolean(left > right))
+            }
+            GreaterEqual => {
+                let right = self.pop_num()?;
+                let left = self.pop_num()?;
+                self.push(Value::Boolean(left >= right))
+            }
+            Less => {
+                let right = self.pop_num()?;
+                let left = self.pop_num()?;
+                self.push(Value::Boolean(left < right))
+            }
+            LessEqual => {
+                let right = self.pop_num()?;
+                let left = self.pop_num()?;
+                self.push(Value::Boolean(left <= right))
+            }
             Print => {
                 let val = self.pop()?;
-                match val {
-                    Value::ObjString(key) => {
-                        println!("===> {:?}", unsafe { &*key })
-                    }
-                    _ => {
-                        println!("===> {:?}", val)
-                    }
-                }
+                println!("====> {}", val)
             }
             Pop => {
                 self.pop()?;
@@ -232,7 +277,7 @@ impl Vm {
                 frame.ip += offset as usize
             }
             Call => {
-                let arg_count = frame.read_byte().context("requrie arg count")? as usize;
+                let arg_count = frame.read_code().context("requrie arg count")? as usize;
                 let callee = self
                     .peek_num(arg_count)
                     .context("need callee value")?
@@ -246,7 +291,7 @@ impl Vm {
     fn call_value(&mut self, callee: &Value, arg_count: usize) -> Result<()> {
         match callee {
             Value::ObjFunction(fun) => self.call(fun.clone(), arg_count),
-            _ => bail!("Can only call functions and classes!"),
+            _ => bail!("Can only call functions and classes, {:?}", callee),
         }
     }
 
@@ -267,7 +312,7 @@ impl Vm {
     }
 
     fn peek_num(&self, num: usize) -> Option<&Value> {
-        self.stack.get(self.stack.len() - num - 1)
+        self.stack.get(self.stack.len() - 1 - num)
     }
 
     fn pop_num(&mut self) -> Result<f64> {

@@ -1,13 +1,7 @@
-use anyhow::{bail, Result};
-use std::{
-    collections::hash_map::DefaultHasher,
-    hash::{Hash, Hasher},
-    ptr,
-    rc::Rc,
-    usize,
-};
+use anyhow::{bail, Result, Context};
+use std::{collections::hash_map::DefaultHasher, fmt::Display, hash::{Hash, Hasher}, ptr, rc::Rc, usize};
 
-use super::chunk::Chunk;
+use super::{chunk::Chunk, debug};
 
 #[derive(Debug)]
 pub struct Object {
@@ -61,6 +55,12 @@ impl ObjFunction {
         } else {
             &(unsafe { &*self.name }).data
         }
+    }
+}
+
+impl Display for ObjFunction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        debug::fmt_fun(self, f)
     }
 }
 
