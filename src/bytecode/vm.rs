@@ -257,18 +257,16 @@ impl Vm {
                 self.stack[slot] = self.peek().context("Set Local need value")?.clone();
             }
             GetUpvalue => {
-                let slot = frame.read_index("GetUpvalue need index")?;
-                println!("slot: {}, {}", slot, frame.slots);
-                for (idx, v) in self.stack.iter().enumerate() {
-                    println!("stack===={}, {}", idx, v)
-                }
-                let value = self.stack[slot].clone();
+                let slot = frame.read_byte("GetUpvalue need index")? as usize;
+                let location = frame.upvalues[slot].location;
+                let value = self.stack[location].clone();
                 self.push(value)
             }
             SetUpvalue => {
-                let slot = frame.read_index("GetUpvalue need index")?;
+                let slot = frame.read_byte("SetUpvalue need index")? as usize;
+                let location = frame.upvalues[slot].location;
                 let value = self.peek().context("need value to SetUpvalue")?.clone();
-                let _ = std::mem::replace(&mut self.stack[slot], value);
+                let _ = std::mem::replace(&mut self.stack[location], value);
             }
             JumpIfFalse => {
                 let offset = frame.read_u16();
@@ -309,7 +307,7 @@ impl Vm {
                     for i in 0..closure.fun.upvalue_count {
                         let index = frame.read_byte("upvalue.index is missing")?;
                         let local = frame.read_bool("upvalue.local is missing")?;
-                        closure.add_upvalue(index as usize, local);
+                        closure.add_upvalue(frame.slots + index as usize, local);
                     }
                     self.push(Value::ObjClosure(Rc::new(closure)))
                 }
