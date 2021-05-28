@@ -83,6 +83,20 @@ fn function_call_function() {
         "#);
 }
 #[test]
+fn function_factorial() {
+    run(r#"
+            var a = 9;
+            fun factorial(i){
+                if(i==1) return 1;
+                var result = i * factorial(i-1);
+                print "call foo " + i + ", result";
+                return result;
+            }
+            a = factorial(a);
+            print a;
+        "#);
+}
+#[test]
 fn function_recursive() {
     run(r#"
             var a = 10;
@@ -96,4 +110,18 @@ fn function_recursive() {
             a = fib(a);
             print a;
         "#);
+}
+
+#[test]
+fn scope_fun() {
+    run(r#"
+    fun outer() {
+        var x = "outside";
+        fun inner() {
+          print x;
+        }
+        inner();
+      }
+      outer();
+    "#);
 }

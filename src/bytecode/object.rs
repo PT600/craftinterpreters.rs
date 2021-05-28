@@ -1,7 +1,14 @@
-use anyhow::{bail, Result, Context};
-use std::{collections::hash_map::DefaultHasher, fmt::Display, hash::{Hash, Hasher}, ptr, rc::Rc, usize};
+use anyhow::{bail, Context, Result};
+use std::{
+    collections::hash_map::DefaultHasher,
+    fmt::Display,
+    hash::{Hash, Hasher},
+    ptr,
+    rc::Rc,
+    usize,
+};
 
-use super::{chunk::Chunk, debug};
+use super::{chunk::Chunk, debug, value::Value};
 
 #[derive(Debug)]
 pub struct Object {
@@ -33,10 +40,11 @@ pub struct ObjString {
     pub hash: usize,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct ObjFunction {
     pub arity: u8,
     pub chunk: Chunk,
+    pub upvalue_count: usize,
     pub name: *const ObjString,
 }
 
@@ -45,6 +53,7 @@ impl ObjFunction {
         Self {
             arity: 0,
             chunk: Default::default(),
+            upvalue_count: 0,
             name: ptr::null(),
         }
     }
@@ -76,5 +85,36 @@ impl ObjString {
         key.hash(&mut s);
         let result = s.finish();
         result as usize
+    }
+}
+
+#[derive(Debug)]
+pub struct ObjUpvalue {
+    pub value: Option<Value>,
+    pub location: usize,
+    pub local: bool,
+}
+#[derive(Debug)]
+pub struct ObjClosure {
+    pub fun: Rc<ObjFunction>,
+    pub upvalues: Vec<ObjUpvalue>,
+    pub upvalue_count: usize,
+}
+
+impl ObjClosure {
+    pub fn new(fun: Rc<ObjFunction>) -> Self {
+        let upvalue_count = fun.upvalue_count;
+        Self {
+            fun,
+            upvalues: vec![],
+            upvalue_count,
+        }
+    }
+    pub fn add_upvalue(&mut self, location: usize, local: bool) {
+        self.upvalues.push(ObjUpvalue {
+            value: None,
+            location,
+            local,
+        })
     }
 }

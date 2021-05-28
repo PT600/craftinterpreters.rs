@@ -12,6 +12,7 @@ use crate::{
 
 use anyhow::{bail, Context, Result};
 use smol_str::SmolStr;
+use std::vec;
 use std::{fmt::Display, iter::Peekable, mem, ptr, rc::Rc, usize, vec::IntoIter};
 
 pub struct Parser {
@@ -81,11 +82,17 @@ pub struct Local {
     depth: i32,
 }
 
+#[derive(Debug)]
+pub struct Upvalue {
+    name: SmolStr,
+    index: usize,
+    local: bool,
+}
+
 pub struct Compiler {
     pub strings: Strings,
     pub parser: Parser,
     pub func: FunCompiler,
-    pub enclosings: Vec<FunCompiler>,
 }
 
 #[derive(Debug)]
@@ -95,17 +102,58 @@ pub struct FunCompiler {
     pub name: *const ObjString,
     pub locals: Vec<Local>,
     pub scope_depth: i32,
+    pub enclosing: Option<Box<FunCompiler>>,
+    pub upvalues: Vec<Upvalue>,
 }
 
 impl FunCompiler {
-    pub fn new(name: *const ObjString) -> Self {
+    pub fn new(name: *const ObjString, enclosing: Option<Box<FunCompiler>>) -> Self {
         FunCompiler {
             arity: 0,
             chunk: Default::default(),
             name,
             locals: vec![],
             scope_depth: 0,
+            enclosing,
+            upvalues: vec![],
         }
+    }
+
+    fn resolve_local(&self, id: &SmolStr) -> Option<usize> {
+        self.locals
+            .iter()
+            .rev()
+            .position(|local| &local.name == id)
+            .map(|position| self.locals.len() - position)
+    }
+
+    fn resolve_upvalue(&mut self, id: &SmolStr) -> Option<usize> {
+        if let Some(enclosing) = self.enclosing.as_mut() {
+            if let Some(arg) = (&*enclosing).resolve_local(id) {
+                return self.add_upvalue(id, arg, true);
+            }
+            if let Some(arg) = (&mut *enclosing).resolve_upvalue(id) {
+                return self.add_upvalue(id, arg, false);
+            }
+        }
+        None
+    }
+    fn add_upvalue(&mut self, name: &SmolStr, index: usize, local: bool) -> Option<usize> {
+        assert!(
+            self.upvalues.len() < u8::MAX as usize,
+            "len of upvalues execeed limit!"
+        );
+        self.upvalues
+            .iter()
+            .position(|v| &v.name == name && v.local == local)
+            .or_else(|| {
+                self.upvalues.push(Upvalue {
+                    name: name.clone(),
+                    index,
+                    local,
+                });
+                Some(self.upvalues.len() - 1)
+            })
     }
 }
 
@@ -123,9 +171,6 @@ pub fn compile(source: &str) -> Result<Compiler> {
     match &result {
         Err(e) => {
             println!("compile err: {:?}", result);
-            for enclosing in &compiler.enclosings {
-                println!("enclosing: {}", enclosing);
-            }
             println!("func: {}", compiler.func);
             bail!("compile error: {}", e)
         }
@@ -135,12 +180,11 @@ pub fn compile(source: &str) -> Result<Compiler> {
 
 impl Compiler {
     pub fn new(strings: Strings, parser: Parser) -> Self {
-        let func = FunCompiler::new(ptr::null());
+        let func = FunCompiler::new(ptr::null(), None);
         Compiler {
             strings,
             parser,
             func,
-            enclosings: vec![],
         }
     }
     pub fn compile(&mut self) -> Result<()> {
@@ -183,24 +227,32 @@ impl Compiler {
 
     fn fun_decl(&mut self) -> Result<()> {
         let id = self.consume_identifier()?;
+        if self.func.scope_depth > 0 {
+            self.decl_local(id.clone())?;
+        }
         let name = self.strings.add(id.to_string());
-        let func = FunCompiler::new(name);
-        self.func.locals.push(Local {
-            name: "".into(),
-            depth: 0,
-        });
+        let func = FunCompiler::new(name, None);
         let enclosing = mem::replace(&mut self.func, func);
-        self.enclosings.push(enclosing);
+        self.func.enclosing.replace(Box::new(enclosing));
         self.function()?;
-        let enclosing = self.enclosings.pop().context("enclosing is missing")?;
+        let enclosing = *self.func.enclosing.take().context("enclosing is missing")?;
         let func = mem::replace(&mut self.func, enclosing);
         let fun = ObjFunction {
             arity: func.arity,
             chunk: func.chunk,
+            upvalue_count: func.upvalues.len(),
             name,
         };
-        self.write_const(Value::ObjFunction(Rc::new(fun)));
-        self.define_variable(id)?;
+        let idx = self.add_const(Value::ObjFunction(Rc::new(fun)));
+        self.emit_code(OpCode::Closure);
+        self.emit_byte(idx as u8);
+        for upvalue in &func.upvalues {
+            self.emit_byte(upvalue.index as u8);
+            self.emit_byte(upvalue.local as u8)
+        }
+        if self.func.scope_depth == 0 {
+            self.define_global(id);
+        }
         Ok(())
     }
 
@@ -224,29 +276,38 @@ impl Compiler {
         Ok(())
     }
 
+    fn define_global(&mut self, id: SmolStr) {
+        assert!(self.func.scope_depth == 0, "scope_depth must be 0!");
+        let obj_str = self.strings.add(id.to_string());
+        self.emit_code(OpCode::DefineGlobal);
+        let const_idx = self.func.chunk.add_const(Value::ObjString(obj_str));
+        self.emit_byte(const_idx as u8);
+    }
+
+    fn decl_local(&mut self, id: SmolStr) -> Result<()> {
+        if self.func.locals.len() >= u8::MAX as usize {
+            bail!("too many locals!")
+        }
+        for local in self.func.locals.iter().rev() {
+            if local.depth != -1 && local.depth < self.func.scope_depth {
+                break;
+            }
+            if local.name == id {
+                bail!("Already variable with this name in this scope.")
+            }
+        }
+        self.func.locals.push(Local {
+            name: id,
+            depth: self.func.scope_depth,
+        });
+        Ok(())
+    }
+
     fn define_variable(&mut self, id: SmolStr) -> Result<()> {
-        println!("define_var, func: {}", self.func);
         if self.func.scope_depth == 0 {
-            let obj_str = self.strings.add(id.to_string());
-            self.emit_code(OpCode::DefineGlobal);
-            let const_idx = self.func.chunk.add_const(Value::ObjString(obj_str));
-            self.emit_byte(const_idx as u8);
+            self.define_global(id);
         } else {
-            if self.func.locals.len() >= u8::MAX as usize {
-                bail!("too many locals!")
-            }
-            for local in self.func.locals.iter().rev() {
-                if local.depth != -1 && local.depth < self.func.scope_depth {
-                    break;
-                }
-                if local.name == id {
-                    bail!("Already variable with this name in this scope.")
-                }
-            }
-            self.func.locals.push(Local {
-                name: id.clone(),
-                depth: self.func.scope_depth,
-            })
+            self.decl_local(id)?;
         }
         Ok(())
     }
@@ -357,7 +418,9 @@ impl Compiler {
         self.parser
             .peek()
             .map(|t| match t.ttype {
-                EqualEqual | BangEqual | GREATER | GreaterEqual | LESS | LessEqual => Precedence::Comparision,
+                EqualEqual | BangEqual | GREATER | GreaterEqual | LESS | LessEqual => {
+                    Precedence::Comparision
+                }
                 PLUS | MINUS => Precedence::Term,
                 STAR | SLASH => Precedence::Factor,
                 LeftParen => Precedence::Call,
@@ -387,8 +450,10 @@ impl Compiler {
                 self.chunk().write_const(Value::ObjString(s), line);
             }
             IDENTIFIER(id) => {
-                let (arg, get_op, set_op) = if let Some(arg) = self.resolve_local(id) {
+                let (arg, get_op, set_op) = if let Some(arg) = self.func.resolve_local(id) {
                     (arg, OpCode::GetLocal, OpCode::SetLocal)
+                } else if let Some(arg) = self.func.resolve_upvalue(id) {
+                    (arg, OpCode::GetUpvalue, OpCode::SetUpvalue)
                 } else {
                     let obj_str = self.strings.add(id.to_string());
                     let arg = self.chunk().add_const(Value::ObjString(obj_str));
@@ -444,7 +509,7 @@ impl Compiler {
             GreaterEqual => self.handle_binary(OpCode::GreaterEqual, precedence),
             GREATER => self.handle_binary(OpCode::Greater, precedence),
             LessEqual => self.handle_binary(OpCode::LessEqual, precedence),
-            LESS=> self.handle_binary(OpCode::Less, precedence),
+            LESS => self.handle_binary(OpCode::Less, precedence),
             PLUS => self.handle_binary(OpCode::Add, precedence),
             MINUS => self.handle_binary(OpCode::Substract, precedence),
             STAR => self.handle_binary(OpCode::Multiply, precedence),
@@ -473,14 +538,6 @@ impl Compiler {
         self.emit_code(code);
         Ok(())
     }
-    fn resolve_local(&self, id: &SmolStr) -> Option<usize> {
-        self.func
-            .locals
-            .iter()
-            .rev()
-            .position(|local| &local.name == id)
-            .map(|position| self.func.locals.len() - position)
-    }
 
     fn emit_jump(&mut self, code: OpCode) -> (usize, usize) {
         self.emit_code(code);
@@ -499,6 +556,10 @@ impl Compiler {
 
     fn write_const(&mut self, value: Value) {
         self.func.chunk.write_const(value, self.parser.line);
+    }
+
+    fn add_const(&mut self, value: Value) -> usize {
+        self.func.chunk.add_const(value)
     }
 
     fn emit_byte(&mut self, code: u8) {

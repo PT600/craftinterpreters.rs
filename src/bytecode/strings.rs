@@ -6,7 +6,7 @@ use super::object::ObjString;
 pub struct Strings {
     tombstones: Vec<bool>,
     entries: Vec<Option<ObjString>>,
-    count: usize,
+    pub count: usize,
     mask: usize,
 }
 
@@ -34,6 +34,7 @@ impl Strings {
         }
     }
 
+    //@TODO, fix bug, infinite loop
     pub fn add(&mut self, key: String) -> *const ObjString {
         if (self.count + 1) as f32 > (self.entries.capacity() as f32) * Self::MAX_LOAD {
             self.adjust_capacity();
@@ -90,8 +91,11 @@ impl Strings {
     }
 
     fn adjust_capacity(&mut self) {
-        self.entries.reserve_exact(self.entries.capacity());
-        let _ = mem::replace(&mut self.tombstones, vec![false; self.entries.capacity()]);
+        let new_capacity = self.entries.capacity()* 2;
+        let mut entries = mem::replace(&mut self.entries, vec![None; new_capacity]);
+        self.entries.append(&mut entries);
+        let _ = mem::replace(&mut self.tombstones, vec![false; new_capacity]);
+        self.mask = new_capacity - 1;
     }
 }
 

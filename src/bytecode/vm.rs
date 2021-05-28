@@ -4,7 +4,7 @@ use anyhow::{bail, Context, Result};
 
 use super::{
     compiler::compile,
-    object::{ObjFunction, ObjString, Object},
+    object::{Obj, ObjClosure, ObjFunction, ObjString, ObjUpvalue, Object},
     strings::Strings,
     table::Table,
     *,
@@ -21,6 +21,7 @@ const STACK_MAX: usize = 256;
 #[derive(Debug)]
 struct CallFrame<'a> {
     chunk: &'a Chunk,
+    upvalues: &'a Vec<ObjUpvalue>,
     ip: usize,
     slots: usize,
 }
@@ -68,6 +69,16 @@ impl<'a> CallFrame<'a> {
         let idx = self.read_code().context(err)? as usize;
         Ok(self.slots + idx)
     }
+
+    fn read_byte(&mut self, err: &'static str) -> Result<u8> {
+        let byte = self.read_code().context(err)? as u8;
+        Ok(byte)
+    }
+
+    fn read_bool(&mut self, err: &'static str) -> Result<bool> {
+        let value = self.read_byte(err)? == 1;
+        Ok(value)
+    }
 }
 
 #[derive(Debug)]
@@ -95,35 +106,29 @@ impl Vm {
         let fun = Rc::new(ObjFunction {
             chunk: func.chunk,
             name: func.name,
+            upvalue_count: 0,
             arity: func.arity,
         });
-        self.push(Value::ObjFunction(fun.clone()));
-        if true {
-            // return Ok(())
-        }
-        let result = self.call(fun.clone(), 0);
-        if result.is_err() {
-            println!("err: {:?}", result);
-            println!("fun: {:?}", fun);
-            println!("vm: {:?}", self);
-        }
-        result
+        let closure = Rc::new(ObjClosure::new(fun.clone()));
+        self.push(Value::ObjClosure(closure.clone()));
+        self.call(closure, 0)
     }
 
-    fn call(&mut self, fun: Rc<ObjFunction>, arg_count: usize) -> Result<()> {
+    fn call(&mut self, closure: Rc<ObjClosure>, arg_count: usize) -> Result<()> {
         let mut frame = CallFrame {
-            chunk: &fun.chunk,
+            chunk: &closure.fun.chunk,
+            upvalues: &closure.upvalues,
             ip: 0,
             slots: self.stack.len() - arg_count - 1,
         };
         let mut return_value = Value::Nil;
         while let Some(code) = frame.read_code() {
-            println!("code: {:?}", code);
+            println!("run code: {:?}", code);
             if matches!(code, Return) {
                 return_value = self.pop()?;
                 break;
             } else {
-                self.run(code, &mut frame)?;
+                self.run(&code, &mut frame)?;
             }
         }
         let pop_count = self.stack.len() - frame.slots;
@@ -134,7 +139,7 @@ impl Vm {
         Ok(())
     }
 
-    fn run(&mut self, code: OpCode, frame: &mut CallFrame) -> Result<()> {
+    fn run(&mut self, code: &OpCode, frame: &mut CallFrame) -> Result<()> {
         match code {
             Nil => self.push(Value::Nil),
             True => self.push(Value::Boolean(true)),
@@ -231,7 +236,7 @@ impl Vm {
                 let val = self
                     .globals
                     .get(name)
-                    .context(format!("undefined variable {:?}", name))?
+                    .context(format!("undefined variable {:?}", unsafe { &*name }))?
                     .clone();
                 self.push(val);
             }
@@ -250,6 +255,20 @@ impl Vm {
             SetLocal => {
                 let slot = frame.read_index("SetLocal need index")?;
                 self.stack[slot] = self.peek().context("Set Local need value")?.clone();
+            }
+            GetUpvalue => {
+                let slot = frame.read_index("GetUpvalue need index")?;
+                println!("slot: {}, {}", slot, frame.slots);
+                for (idx, v) in self.stack.iter().enumerate() {
+                    println!("stack===={}, {}", idx, v)
+                }
+                let value = self.stack[slot].clone();
+                self.push(value)
+            }
+            SetUpvalue => {
+                let slot = frame.read_index("GetUpvalue need index")?;
+                let value = self.peek().context("need value to SetUpvalue")?.clone();
+                let _ = std::mem::replace(&mut self.stack[slot], value);
             }
             JumpIfFalse => {
                 let offset = frame.read_u16();
@@ -284,13 +303,25 @@ impl Vm {
                     .clone();
                 self.call_value(&callee, arg_count)?;
             }
+            Closure => match frame.read_const() {
+                Value::ObjFunction(fun) => {
+                    let mut closure = ObjClosure::new(fun);
+                    for i in 0..closure.fun.upvalue_count {
+                        let index = frame.read_byte("upvalue.index is missing")?;
+                        let local = frame.read_bool("upvalue.local is missing")?;
+                        closure.add_upvalue(index as usize, local);
+                    }
+                    self.push(Value::ObjClosure(Rc::new(closure)))
+                }
+                v @ _ => bail!("need fun for closure, got {:?}", v),
+            },
         }
         Ok(())
     }
 
     fn call_value(&mut self, callee: &Value, arg_count: usize) -> Result<()> {
         match callee {
-            Value::ObjFunction(fun) => self.call(fun.clone(), arg_count),
+            Value::ObjClosure(closure) => self.call(closure.clone(), arg_count),
             _ => bail!("Can only call functions and classes, {:?}", callee),
         }
     }

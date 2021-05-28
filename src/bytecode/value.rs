@@ -4,22 +4,24 @@ use anyhow::{bail, Result};
 
 use crate::bytecode::debug;
 
-use super::object::{ObjFunction, ObjString, Object};
+use super::object::{ObjClosure, ObjFunction, ObjString, Object};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum Value {
     Nil,
     Number(f64),
     Boolean(bool),
     ObjString(*const ObjString),
     ObjFunction(Rc<ObjFunction>),
+    ObjClosure(Rc<ObjClosure>),
 }
 
 impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Value::ObjString(s) => writeln!(f, "{:?}", unsafe { &**s }),
+            Value::ObjString(s) => writeln!(f, "ObjString: {:?}", unsafe { &**s }),
             Value::ObjFunction(fun) => debug::fmt_fun(fun, f),
+            Value::ObjClosure(closure) => debug::fmt_closure(closure, f),
             _ => writeln!(f, "{:?}", self),
         }
     }
@@ -45,6 +47,7 @@ impl Value {
             Value::Boolean(bool) => Ok(format!("{}", bool)),
             Value::Nil => Ok("Nil".into()),
             Value::ObjFunction(fun) => Ok(format!("{}", fun)),
+            Value::ObjClosure(closure) => Ok(format!("{}", closure.fun)),
         }
     }
     pub fn is_false(&self) -> bool {

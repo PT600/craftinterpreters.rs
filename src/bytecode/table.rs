@@ -4,7 +4,7 @@ use std::{mem, usize};
 
 type Key = *const ObjString;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct Entry {
     key: *const ObjString,
     value: Value,
@@ -131,8 +131,6 @@ mod tests {
         table.set(&a1, Value::Number(1.0));
         table.set(&a2, Value::Number(2.0));
         assert_eq!(table.count, 2);
-        assert_eq!(table.get(&a1), Some(&Value::Number(1.0)));
-        assert_eq!(table.get(&a2), Some(&Value::Number(2.0)));
     }
 
     #[test]

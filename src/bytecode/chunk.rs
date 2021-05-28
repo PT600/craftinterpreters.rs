@@ -1,4 +1,3 @@
-
 use super::value::Value;
 use num;
 use num_derive::FromPrimitive;
@@ -30,11 +29,14 @@ pub enum OpCode {
     SetGlobal,
     GetLocal,
     SetLocal,
+    GetUpvalue,
+    SetUpvalue,
     JumpIfFalse,
     JumpAndFalse,
     JumpOrTrue,
     Jump,
     Call,
+    Closure,
 }
 
 impl OpCode {
@@ -43,7 +45,7 @@ impl OpCode {
     }
 }
 
-#[derive(Default, Debug, Clone, PartialEq)]
+#[derive(Default, Debug, Clone)]
 pub struct Chunk {
     pub codes: Vec<u8>,
     pub lines: Vec<usize>,
@@ -76,7 +78,6 @@ impl Chunk {
     pub fn read_const(&self, idx: usize) -> Value {
         self.consts[idx].clone()
     }
-
 }
 
 #[cfg(test)]
