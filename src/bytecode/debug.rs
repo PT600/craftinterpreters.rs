@@ -1,4 +1,6 @@
+use std::cell::RefCell;
 use std::fmt::Result;
+use std::rc::Rc;
 use std::usize;
 use std::{
     fmt::{write, Display},
@@ -30,9 +32,9 @@ pub fn fmt_func(func: &FunCompiler, f: &mut std::fmt::Formatter<'_>) -> Result {
     Ok(())
 }
 
-pub fn fmt_closure(closure: &ObjClosure, f: &mut std::fmt::Formatter<'_>) -> Result {
+pub fn fmt_closure(closure: Rc<RefCell<ObjClosure>>, f: &mut std::fmt::Formatter<'_>) -> Result {
     write!(f, "closure: ")?;
-    fmt_fun(&closure.fun, f)
+    fmt_fun(&closure.borrow().fun, f)
 }
 pub fn fmt_fun(fun: &ObjFunction, f: &mut std::fmt::Formatter<'_>) -> Result {
     writeln!(f, "fun, name: {:?}, artiy: {}", fun.get_name(), fun.arity)?;

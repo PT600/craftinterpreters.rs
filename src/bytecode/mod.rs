@@ -1,9 +1,10 @@
-mod pratt_parser;
-mod value;
-mod compiler;
 mod chunk;
-mod vm;
-mod strings;
-mod object;
-mod table;
+mod compiler;
 mod debug;
+mod list_test;
+mod object;
+mod pratt_parser;
+mod strings;
+mod table;
+mod value;
+mod vm;

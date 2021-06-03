@@ -1,5 +1,6 @@
 use anyhow::{bail, Context, Result};
 use std::{
+    cell::RefCell,
     collections::hash_map::DefaultHasher,
     fmt::Display,
     hash::{Hash, Hasher},
@@ -90,14 +91,15 @@ impl ObjString {
 
 #[derive(Debug)]
 pub struct ObjUpvalue {
-    pub value: Option<Value>,
+    pub next: Option<Box<ObjUpvalue>>,
+    pub closed_value: Option<Value>,
+    pub value: *mut Value,
     pub location: usize,
-    pub local: bool,
 }
 #[derive(Debug)]
 pub struct ObjClosure {
     pub fun: Rc<ObjFunction>,
-    pub upvalues: Vec<ObjUpvalue>,
+    pub upvalues: Vec<*mut ObjUpvalue>,
     pub upvalue_count: usize,
 }
 
@@ -109,12 +111,5 @@ impl ObjClosure {
             upvalues: vec![],
             upvalue_count,
         }
-    }
-    pub fn add_upvalue(&mut self, location: usize, local: bool) {
-        self.upvalues.push(ObjUpvalue {
-            value: None,
-            location,
-            local,
-        })
     }
 }

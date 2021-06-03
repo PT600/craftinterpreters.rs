@@ -1,4 +1,4 @@
-use std::{fmt::Display, rc::Rc};
+use std::{borrow::Borrow, cell::RefCell, fmt::Display, rc::Rc};
 
 use anyhow::{bail, Result};
 
@@ -13,7 +13,7 @@ pub enum Value {
     Boolean(bool),
     ObjString(*const ObjString),
     ObjFunction(Rc<ObjFunction>),
-    ObjClosure(Rc<ObjClosure>),
+    ObjClosure(Rc<RefCell<ObjClosure>>),
 }
 
 impl Display for Value {
@@ -21,7 +21,7 @@ impl Display for Value {
         match self {
             Value::ObjString(s) => writeln!(f, "ObjString: {:?}", unsafe { &**s }),
             Value::ObjFunction(fun) => debug::fmt_fun(fun, f),
-            Value::ObjClosure(closure) => debug::fmt_closure(closure, f),
+            Value::ObjClosure(closure) => debug::fmt_closure(closure.clone(), f),
             _ => writeln!(f, "{:?}", self),
         }
     }
@@ -47,7 +47,7 @@ impl Value {
             Value::Boolean(bool) => Ok(format!("{}", bool)),
             Value::Nil => Ok("Nil".into()),
             Value::ObjFunction(fun) => Ok(format!("{}", fun)),
-            Value::ObjClosure(closure) => Ok(format!("{}", closure.fun)),
+            Value::ObjClosure(closure) => Ok(format!("{:?}", closure)),
         }
     }
     pub fn is_false(&self) -> bool {

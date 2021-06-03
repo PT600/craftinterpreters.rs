@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Display, rc::Rc, usize};
+use std::{cell::RefCell, collections::HashMap, fmt::Display, mem, ptr, rc::Rc, usize};
 
 use anyhow::{bail, Context, Result};
 
@@ -21,7 +21,7 @@ const STACK_MAX: usize = 256;
 #[derive(Debug)]
 struct CallFrame<'a> {
     chunk: &'a Chunk,
-    upvalues: &'a Vec<ObjUpvalue>,
+    closure: Rc<RefCell<ObjClosure>>,
     ip: usize,
     slots: usize,
 }
@@ -87,6 +87,7 @@ struct Vm {
     strings: Strings,
     objects: Option<Object>,
     globals: Table,
+    open_upvalues: Option<Box<ObjUpvalue>>,
 }
 
 impl Vm {
@@ -96,11 +97,12 @@ impl Vm {
             stack: vec![],
             objects: None,
             globals: Table::new(),
+            open_upvalues: None,
         }
     }
 
     fn interpreter(&mut self, source: &str) -> Result<()> {
-        let mut compiler = compile(source)?;
+        let compiler = compile(source)?;
         let func = compiler.func;
         println!("funCompiler: {}", func);
         let fun = Rc::new(ObjFunction {
@@ -109,15 +111,15 @@ impl Vm {
             upvalue_count: 0,
             arity: func.arity,
         });
-        let closure = Rc::new(ObjClosure::new(fun.clone()));
+        let closure = Rc::new(RefCell::new(ObjClosure::new(fun.clone())));
         self.push(Value::ObjClosure(closure.clone()));
         self.call(closure, 0)
     }
 
-    fn call(&mut self, closure: Rc<ObjClosure>, arg_count: usize) -> Result<()> {
+    fn call(&mut self, closure: Rc<RefCell<ObjClosure>>, arg_count: usize) -> Result<()> {
         let mut frame = CallFrame {
-            chunk: &closure.fun.chunk,
-            upvalues: &closure.upvalues,
+            chunk: &closure.borrow().fun.chunk,
+            closure: closure.clone(),
             ip: 0,
             slots: self.stack.len() - arg_count - 1,
         };
@@ -221,7 +223,7 @@ impl Vm {
             }
             Print => {
                 let val = self.pop()?;
-                println!("====> {}", val)
+                println!("$===> {}", val)
             }
             Pop => {
                 self.pop()?;
@@ -258,15 +260,16 @@ impl Vm {
             }
             GetUpvalue => {
                 let slot = frame.read_byte("GetUpvalue need index")? as usize;
-                let location = frame.upvalues[slot].location;
-                let value = self.stack[location].clone();
+                let upvalue = unsafe { &*frame.closure.borrow().upvalues[slot] };
+                let value = unsafe { &*upvalue.value }.clone();
                 self.push(value)
             }
             SetUpvalue => {
                 let slot = frame.read_byte("SetUpvalue need index")? as usize;
-                let location = frame.upvalues[slot].location;
                 let value = self.peek().context("need value to SetUpvalue")?.clone();
-                let _ = std::mem::replace(&mut self.stack[location], value);
+                let upvalue = unsafe { &*frame.closure.borrow().upvalues[slot] };
+                let target = unsafe { &mut *upvalue.value };
+                let _ = std::mem::replace(target, value);
             }
             JumpIfFalse => {
                 let offset = frame.read_u16();
@@ -307,14 +310,52 @@ impl Vm {
                     for i in 0..closure.fun.upvalue_count {
                         let index = frame.read_byte("upvalue.index is missing")?;
                         let local = frame.read_bool("upvalue.local is missing")?;
-                        closure.add_upvalue(frame.slots + index as usize, local);
+                        if local {
+                            let location = frame.slots + index as usize;
+                            let value = &mut self.stack[location] as *mut Value;
+                            let upvalue = self.capture_upvalue(value, location);
+                            closure.upvalues.push(upvalue);
+                        } else {
+                            let upvalue = frame.closure.borrow().upvalues[index as usize].clone();
+                            closure.upvalues.push(upvalue)
+                        }
                     }
-                    self.push(Value::ObjClosure(Rc::new(closure)))
+                    self.push(Value::ObjClosure(Rc::new(RefCell::new(closure))))
                 }
                 v @ _ => bail!("need fun for closure, got {:?}", v),
             },
         }
         Ok(())
+    }
+
+    fn capture_upvalue(&mut self, value: *mut Value, location: usize) -> *mut ObjUpvalue {
+        let mut prev_upvalue = ptr::null_mut() as *mut Box<ObjUpvalue>;
+        let mut upvalue = &mut self.open_upvalues;
+        while let Some(upv) = upvalue {
+            if upv.location > location {
+                prev_upvalue = &mut *upv;
+                upvalue = &mut upv.next;
+            } else if upv.location == location {
+                return &mut **upv;
+            } else {
+                break;
+            }
+        }
+        let mut created_upvalue = Box::new(ObjUpvalue {
+            next: None,
+            closed_value: None,
+            value,
+            location,
+        });
+        let result = &mut *created_upvalue as *mut _;
+        if prev_upvalue == ptr::null_mut() {
+            self.open_upvalues = Some(created_upvalue);
+        } else {
+            let prev_upvalue = unsafe { &mut *prev_upvalue };
+            created_upvalue.next = prev_upvalue.next.take();
+            prev_upvalue.next.replace(created_upvalue);
+        }
+        result
     }
 
     fn call_value(&mut self, callee: &Value, arg_count: usize) -> Result<()> {

@@ -118,10 +118,29 @@ fn scope_fun() {
     fun outer() {
         var x = "outside";
         fun inner() {
-          print x;
+            fun iii(){
+                print x;
+            }
+            iii();
         }
         inner();
       }
       outer();
+    "#);
+}
+
+#[test]
+fn closed_upvalues() {
+    run(r#"
+      fun outer() {
+        var x = "outside";
+        fun inner() {
+          print x;
+        }
+        return inner;
+      }
+      var closure = outer();
+      closure();
+      closure();
     "#);
 }
