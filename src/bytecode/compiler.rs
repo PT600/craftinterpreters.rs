@@ -80,6 +80,7 @@ enum Precedence {
 pub struct Local {
     name: SmolStr,
     depth: i32,
+    captured: bool,
 }
 
 #[derive(Debug)]
@@ -129,10 +130,11 @@ impl FunCompiler {
 
     fn resolve_upvalue(&mut self, id: &SmolStr) -> Option<usize> {
         if let Some(enclosing) = self.enclosing.as_mut() {
-            if let Some(arg) = (&*enclosing).resolve_local(id) {
+            if let Some(arg) = enclosing.resolve_local(id) {
+                enclosing.locals[arg].captured = true;
                 return self.add_upvalue(id, arg, true);
             }
-            if let Some(arg) = (&mut *enclosing).resolve_upvalue(id) {
+            if let Some(arg) = enclosing.resolve_upvalue(id) {
                 return self.add_upvalue(id, arg, false);
             }
         }
@@ -299,6 +301,7 @@ impl Compiler {
         self.func.locals.push(Local {
             name: id,
             depth: self.func.scope_depth,
+            captured: false,
         });
         Ok(())
     }
@@ -383,8 +386,12 @@ impl Compiler {
         self.func.scope_depth -= 1;
         while let Some(local) = self.func.locals.last() {
             if local.depth > self.func.scope_depth {
+                if local.captured {
+                    self.emit_code(OpCode::CloseUpvalue);
+                } else {
+                    self.emit_code(OpCode::Pop);
+                }
                 self.func.locals.pop();
-                self.emit_code(OpCode::Pop);
             } else {
                 break;
             }

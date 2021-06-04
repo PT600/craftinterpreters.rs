@@ -1,13 +1,21 @@
 use super::object::ObjString;
 use super::value::Value;
+use std::fmt::Display;
 use std::{mem, usize};
 
-type Key = *const ObjString;
+pub type Key = *const ObjString;
 
 #[derive(Debug, Clone)]
 pub struct Entry {
     key: *const ObjString,
     value: Value,
+}
+
+impl Display for Entry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let key = unsafe { &*self.key };
+        writeln!(f, "key: {:?}, value: {}", key, self.value)
+    }
 }
 #[derive(Default, Debug)]
 pub struct Table {
@@ -15,6 +23,17 @@ pub struct Table {
     entries: Vec<Option<Entry>>,
     count: usize,
     mask: usize,
+}
+impl Display for Table {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "table.entries: ")?;
+        for (index, entry) in self.entries.iter().enumerate() {
+            if let Some(entry) = entry {
+                writeln!(f, "{}+{} => {}", index, self.tombstones[index], entry)?;
+            }
+        }
+        Ok(())
+    }
 }
 
 enum Search {
@@ -50,7 +69,7 @@ impl Table {
                     }
                 }
                 Some(entry) => {
-                    if entry.key == key {
+                    if unsafe { &*entry.key }.data == unsafe { &*key }.data {
                         return Search::Exists(index);
                     }
                 }

@@ -238,7 +238,9 @@ impl Vm {
                 let val = self
                     .globals
                     .get(name)
-                    .context(format!("undefined variable {:?}", unsafe { &*name }))?
+                    .context(format!("GetGlobal: undefined variable {:?}", unsafe {
+                        &*name
+                    }))?
                     .clone();
                 self.push(val);
             }
@@ -246,7 +248,7 @@ impl Vm {
                 let name = frame.read_string()?;
                 let val = self.peek().context("missing value for SetGlobal")?.clone();
                 if self.globals.set(name, val) {
-                    bail!("Undefined variable '{:?}'", unsafe { &*name })
+                    bail!("SetGlobal Undefined variable '{:?}'", unsafe { &*name })
                 }
             }
             GetLocal => {
@@ -324,8 +326,25 @@ impl Vm {
                 }
                 v @ _ => bail!("need fun for closure, got {:?}", v),
             },
+            CloseUpvalue => {
+                let val = self.pop()?;
+                let location = self.stack.len();
+                let head = &mut self.open_upvalues;
+                Vm::close_upvalue(val, location, head)
+            }
         }
         Ok(())
+    }
+
+    fn close_upvalue(value: Value, location: usize, node: &mut Option<Box<ObjUpvalue>>) {
+        if let Some(node) = node {
+            if node.location == location {
+                node.closed_value = Some(value);
+                node.value = node.closed_value.as_mut().unwrap();
+            } else {
+                Vm::close_upvalue(value, location, &mut node.next)
+            }
+        }
     }
 
     fn capture_upvalue(&mut self, value: *mut Value, location: usize) -> *mut ObjUpvalue {

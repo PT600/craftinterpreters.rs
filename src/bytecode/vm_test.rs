@@ -144,3 +144,26 @@ fn closed_upvalues() {
       closure();
     "#);
 }
+
+#[test]
+fn closed_upvalues2() {
+    run(r#"
+    var getter = nil;
+    var setter;
+    fun outer() {
+        var x = "outside";
+        fun innerGetter() {
+          return x;
+        }
+        fun innerSetter(newX){
+            x = newX;
+        }
+        getter = innerGetter;
+        setter = innerSetter;
+    }
+    outer();
+    print getter();
+    setter("newX");
+    print getter();
+    "#);
+}

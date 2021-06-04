@@ -37,6 +37,7 @@ pub enum OpCode {
     Jump,
     Call,
     Closure,
+    CloseUpvalue,
 }
 
 impl OpCode {
