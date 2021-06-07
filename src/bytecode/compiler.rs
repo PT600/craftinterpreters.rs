@@ -265,7 +265,7 @@ impl Compiler {
             loop {
                 self.func.arity += 1;
                 let param = self.consume_identifier()?;
-                self.define_variable(param)?;
+                self.decl_local(param)?;
                 if !self.parser.matches(TokenType::COMMA) {
                     break;
                 }
@@ -401,7 +401,7 @@ impl Compiler {
             }
         }
         // let locals = self.func.locals.drain(position..).collect::<Vec<Local>>();
-        // for local in &locals {
+        // for local in locals {
         //     if local.captured {
         //         self.emit_code(OpCode::CloseUpvalue);
         //     } else {

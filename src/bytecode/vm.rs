@@ -127,6 +127,7 @@ impl Vm {
         while let Some(code) = frame.read_code() {
             println!("run code: {:?}", code);
             if matches!(code, Return) {
+                // neccessary?
                 self.close_upvalues(frame.slots);
                 return_value = self.pop()?;
                 break;
