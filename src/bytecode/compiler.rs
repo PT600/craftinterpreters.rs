@@ -384,17 +384,61 @@ impl Compiler {
 
     fn end_scope(&mut self) {
         self.func.scope_depth -= 1;
-        while let Some(local) = self.func.locals.last() {
-            if local.depth > self.func.scope_depth {
-                if local.captured {
-                    self.emit_code(OpCode::CloseUpvalue);
-                } else {
-                    self.emit_code(OpCode::Pop);
-                }
-                self.func.locals.pop();
+        let position = self
+            .func
+            .locals
+            .iter()
+            .rev()
+            .position(|local| local.depth <= self.func.scope_depth)
+            .map(|p| p + 1)
+            .unwrap_or(0);
+        let locals = self.func.locals.split_off(position);
+        for local in &locals {
+            if local.captured {
+                self.emit_code(OpCode::CloseUpvalue);
             } else {
-                break;
+                self.emit_code(OpCode::Pop);
             }
+        }
+        // let locals = self.func.locals.drain(position..).collect::<Vec<Local>>();
+        // for local in &locals {
+        //     if local.captured {
+        //         self.emit_code(OpCode::CloseUpvalue);
+        //     } else {
+        //         self.emit_code(OpCode::Pop);
+        //     }
+        // }
+        // for i in (0..self.func.locals.len()).rev() {
+        //     let local = &self.func.locals[i];
+        //     if local.depth <= self.func.scope_depth {
+        //         break;
+        //     }
+        //     if local.captured {
+        //         self.emit_code(OpCode::CloseUpvalue);
+        //     } else {
+        //         self.emit_code(OpCode::Pop);
+        //     }
+        //     self.func.locals.pop();
+        // }
+        // while let Some(local) = self.func.locals.last() {
+        //     if local.depth > self.func.scope_depth {
+        //         if local.captured {
+        //             self.emit_code(OpCode::CloseUpvalue);
+        //         } else {
+        //             self.emit_code(OpCode::Pop);
+        //         }
+        //         self.func.locals.pop();
+        //     } else {
+        //         break;
+        //     }
+        // }
+    }
+
+    fn emit_local(&mut self, local: &Local) {
+        if local.captured {
+            self.emit_code(OpCode::CloseUpvalue);
+        } else {
+            self.emit_code(OpCode::Pop);
         }
     }
 

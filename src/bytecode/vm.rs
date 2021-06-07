@@ -127,16 +127,18 @@ impl Vm {
         while let Some(code) = frame.read_code() {
             println!("run code: {:?}", code);
             if matches!(code, Return) {
+                self.close_upvalues(frame.slots);
                 return_value = self.pop()?;
                 break;
             } else {
                 self.run(&code, &mut frame)?;
             }
         }
-        let pop_count = self.stack.len() - frame.slots;
-        for _ in 0..pop_count {
-            self.pop()?;
-        }
+        self.stack.drain(frame.slots..);
+        // let pop_count = self.stack.len() - frame.slots;
+        // for _ in 0..pop_count {
+        //     self.pop()?;
+        // }
         self.push(return_value);
         Ok(())
     }
@@ -327,15 +329,27 @@ impl Vm {
                 v @ _ => bail!("need fun for closure, got {:?}", v),
             },
             CloseUpvalue => {
+                let location = self.stack.len() - 1;
+                // let mut head = &mut self.open_upvalues;
+                // Vm::close_upvalue(val, location, head)
+                self.close_upvalues(location);
                 let val = self.pop()?;
-                let location = self.stack.len();
-                let head = &mut self.open_upvalues;
-                Vm::close_upvalue(val, location, head)
             }
         }
         Ok(())
     }
 
+    fn close_upvalues(&mut self, location: usize) {
+        while let Some(node) = &mut self.open_upvalues {
+            if node.location >= location {
+                node.closed_value = Some(unsafe { &*node.value }.clone());
+                node.value = node.closed_value.as_mut().unwrap();
+                self.open_upvalues = node.next.take();
+            } else {
+                break;
+            }
+        }
+    }
     fn close_upvalue(value: Value, location: usize, node: &mut Option<Box<ObjUpvalue>>) {
         if let Some(node) = node {
             if node.location == location {

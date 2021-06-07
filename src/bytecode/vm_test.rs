@@ -151,9 +151,10 @@ fn closed_upvalues2() {
     var getter = nil;
     var setter;
     fun outer() {
+        var b = ">>>>@@@";
         var x = "outside";
         fun innerGetter() {
-          return x;
+          return b + x;
         }
         fun innerSetter(newX){
             x = newX;
